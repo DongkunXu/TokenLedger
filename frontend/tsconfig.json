@@ -12,6 +12,7 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "tsBuildInfoFile": "../.build/tsconfig.tsbuildinfo",
     "types": ["vite/client"]
   },
   "include": ["src"]
