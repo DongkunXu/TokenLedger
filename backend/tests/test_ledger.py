@@ -80,11 +80,64 @@ def test_day_outside_window_is_not_missing(conn, settings):
     assert stats.missing == [] and revisions(conn) == []
 
 
-def test_finalize_happens_even_without_new_data(conn, settings):
-    run_capture(conn, settings, capture([usage("2026-09-27", 1)]), "2026-09-27T10:00:00")
-    with repo.transaction(conn):
-        n = ledger.finalize_due(conn, settings=settings, now_utc=utc("2026-09-30T10:00:00"))
-    assert n == 1 and row(conn, "2026-09-27")["state"] == State.FINAL
+def test_partial_day_is_not_frozen_by_a_late_capture(conn, settings):
+    # captured at lunchtime, then nothing for two weeks: the settling capture takes the full day
+    run_capture(conn, settings, capture([usage("2026-09-27", 100)]), "2026-09-27T12:00:00")
+    stats = run_capture(conn, settings, capture([usage("2026-09-27", 400)]), "2026-10-11T12:00:00")
+    r = row(conn, "2026-09-27")
+    assert (r["total"], r["state"]) == (400, State.FINAL)
+    assert stats.finalized == 1 and stats.revisions == 0
+    # once settled, later values are only recorded
+    run_capture(conn, settings, capture([usage("2026-09-27", 500)]), "2026-10-12T12:00:00")
+    assert row(conn, "2026-09-27")["total"] == 400
+    assert [x["observed_total"] for x in revisions(conn)] == [500]
+
+
+def test_settling_capture_keeps_ledger_when_source_shrank(conn, settings):
+    run_capture(conn, settings, capture([usage("2026-09-27", 400)]), "2026-09-28T12:00:00")
+    run_capture(conn, settings, capture([usage("2026-09-27", 250)]), "2026-10-11T12:00:00")
+    r = row(conn, "2026-09-27")
+    assert (r["total"], r["state"]) == (400, State.FINAL)
+    assert [tuple(x) for x in revisions(conn)] == [("changed", "2026-09-27", 250, 400)]
+
+
+def test_settling_capture_with_day_gone_freezes_and_records_missing(conn, settings):
+    window = ("2026-09-01", "2026-10-11")
+    run_capture(conn, settings, capture([usage("2026-09-27", 400)], window), "2026-09-27T12:00:00")
+    stats = run_capture(conn, settings, capture([], window), "2026-10-11T12:00:00")
+    r = row(conn, "2026-09-27")
+    assert (r["total"], r["state"]) == (400, State.FINAL)
+    assert stats.finalized == 1
+    assert [tuple(x) for x in revisions(conn)] == [("missing", "2026-09-27", None, 400)]
+
+
+def test_settling_decides_per_day_on_the_total_row(conn, settings):
+    first = [usage("2026-09-27", 100), usage("2026-09-27", 60, model="a"), usage("2026-09-27", 40, model="b")]
+    run_capture(conn, settings, capture(first), "2026-09-27T12:00:00")
+    # total grew; model "a" was re-attributed downwards, model "c" is new
+    later = [usage("2026-09-27", 150), usage("2026-09-27", 50, model="a"), usage("2026-09-27", 40, model="b"),
+             usage("2026-09-27", 60, model="c")]
+    run_capture(conn, settings, capture(later), "2026-10-11T12:00:00")
+    totals = {m: row(conn, "2026-09-27", m)["total"] for m in ("*", "a", "b", "c")}
+    assert totals == {"*": 150, "a": 50, "b": 40, "c": 60}
+    assert all(row(conn, "2026-09-27", m)["state"] == State.FINAL for m in totals)
+
+
+def test_other_series_stay_open_until_their_own_capture(conn, settings):
+    from tokenledger.models import Scope, SeriesKey
+
+    run_capture(conn, settings, capture([usage("2026-09-27", 100)]), "2026-09-27T12:00:00")
+    other = capture([usage("2026-10-11", 5)])
+    other.series = SeriesKey("codex-server", "codex", "account", Scope.ACCOUNT)
+    run_capture(conn, settings, other, "2026-10-11T12:00:00")
+    assert row(conn, "2026-09-27")["state"] == State.OPEN  # waits for its own settling capture
+
+
+def test_missing_total_row_fails_fast(conn, settings):
+    import pytest
+
+    with pytest.raises(ValueError, match="all-model total"):
+        run_capture(conn, settings, capture([usage("2026-09-27", 5, model="a")]), "2026-09-27T12:00:00")
 
 
 def test_backfill_replaces_final_and_records_old_value(conn, settings):

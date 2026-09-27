@@ -1,9 +1,21 @@
 """Finalization rules: how observations become ledger rows.
 
 A day D is *open* on D and the following ``grace_days - 1`` days; every capture
-overwrites an open row with the latest value. After that the row is *final* and
-its value never changes on its own. Later observations that disagree with a
-final row (including the day disappearing from the source) are only written to
+overwrites an open day with the latest values.
+
+The first capture after the grace period *settles* the day, deciding on the
+all-model total row (``DAY_TOTAL``):
+
+* the source reports at least as many tokens as the ledger holds: take the
+  source's rows for that day (late usage is counted), then freeze them
+* the source reports fewer, or no longer has the day: keep the ledger's rows,
+  freeze them, and record what the source said as a revision
+
+Settling happens per series, at that series' own next capture, so however long
+the gap between captures, a day is never frozen with a partial value.
+
+After that the rows are *final* and never change on their own. Later
+observations that disagree (including the day disappearing) are only written to
 ``revisions``, once per distinct observed value.
 
 Backfill is the one deliberate exception: it writes final rows directly and
@@ -14,11 +26,12 @@ revision.
 from __future__ import annotations
 
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from .config import Settings
-from .models import CaptureResult, DayUsage, SeriesKey, State
+from .models import DAY_TOTAL, CaptureResult, DayUsage, SeriesKey, State
 from .store import repo
 
 
@@ -70,45 +83,135 @@ def apply_capture(
 ) -> ApplyStats:
     """Merge one capture into the ledger. Call inside a transaction."""
     stats = ApplyStats()
-    now = iso(now_utc)
+    ctx = _Ctx(
+        conn=conn,
+        sid=repo.series_id(conn, result.series),
+        now=iso(now_utc),
+        origin=f"capture:{capture_id}",
+        capture_id=capture_id,
+        stats=stats,
+    )
     today = local_today(settings, now_utc)
-    sid = repo.series_id(conn, result.series)
-    origin = f"capture:{capture_id}"
-
     _check_unique(result.rows)
-    # Freeze first: a row whose grace ended since the last capture must not take this capture's value.
-    stats.finalized = finalize_due(conn, settings=settings, now_utc=now_utc)
-    seen: set[tuple[str, str]] = set()
+
+    by_day: dict[str, list[DayUsage]] = defaultdict(list)
     for usage in result.rows:
-        seen.add((usage.day, usage.model))
-        existing = repo.ledger_row(conn, sid, usage.day, usage.model)
-        day_open = is_open(usage.day, today, settings.grace_days)
-        if existing is None:
-            state = State.OPEN if day_open else State.FINAL
-            repo.insert_ledger(conn, sid, usage, state=state, origin=origin, now=now)
-            stats.inserted += 1
-        elif existing["state"] == State.OPEN:
-            if repo.row_values(existing) != usage.values():
-                repo.update_ledger_values(conn, sid, usage, origin=origin, now=now)
-                stats.updated += 1
-            else:
-                stats.unchanged += 1
-        elif _record_revision(
-            conn, existing, kind="changed", observed=usage, now=now, capture_id=capture_id, origin=origin
-        ):
-            stats.revisions += 1
+        by_day[usage.day].append(usage)
+
+    for day, rows in sorted(by_day.items()):
+        total = next((u for u in rows if u.model == DAY_TOTAL), None)
+        if total is None:
+            raise ValueError(f"source reported {day} without an all-model total row")
+        held = repo.ledger_row(conn, ctx.sid, day, DAY_TOTAL)
+        if is_open(day, today, settings.grace_days):
+            _merge_open_day(ctx, rows)
+        elif held is None:
+            _insert_final_day(ctx, rows)
+        elif held["state"] == State.OPEN:
+            _settle_day(ctx, day, rows, accept=total.total >= held["total"])
         else:
-            stats.unchanged += 1
+            _observe_final_day(ctx, rows)
 
     if result.window_start and result.window_end:
-        for row in repo.ledger_rows_in_window(conn, sid, result.window_start, result.window_end):
-            if (row["day"], row["model"]) in seen:
+        for row in repo.ledger_rows_in_window(conn, ctx.sid, result.window_start, result.window_end):
+            if row["day"] in by_day and any(u.model == row["model"] for u in by_day[row["day"]]):
                 continue
             stats.missing.append(f"{row['day']}/{row['model']}")
-            if _record_revision(conn, row, kind="missing", observed=None, now=now, capture_id=capture_id, origin=origin):
+            if row["state"] == State.OPEN and not is_open(row["day"], today, settings.grace_days):
+                repo.finalize_row(conn, ctx.sid, row["day"], row["model"], ctx.now)
+                stats.finalized += 1
+            if _record_revision(ctx, row["day"], row["model"], row, kind="missing", observed=None):
                 stats.revisions += 1
 
     return stats
+
+
+@dataclass
+class _Ctx:
+    conn: sqlite3.Connection
+    sid: int
+    now: str
+    origin: str
+    capture_id: int | None
+    stats: ApplyStats
+
+
+def _merge_open_day(ctx: _Ctx, rows: list[DayUsage]) -> None:
+    """Inside the grace period: the latest capture wins."""
+    for usage in rows:
+        existing = repo.ledger_row(ctx.conn, ctx.sid, usage.day, usage.model)
+        if existing is None:
+            repo.insert_ledger(ctx.conn, ctx.sid, usage, state=State.OPEN, origin=ctx.origin, now=ctx.now)
+            ctx.stats.inserted += 1
+        elif existing["state"] == State.FINAL:
+            _observe(ctx, existing, usage)
+        elif repo.row_values(existing) != usage.values():
+            repo.update_ledger_values(ctx.conn, ctx.sid, usage, origin=ctx.origin, now=ctx.now)
+            ctx.stats.updated += 1
+        else:
+            ctx.stats.unchanged += 1
+
+
+def _insert_final_day(ctx: _Ctx, rows: list[DayUsage]) -> None:
+    """First sighting of a day that is already past its grace period."""
+    for usage in rows:
+        existing = repo.ledger_row(ctx.conn, ctx.sid, usage.day, usage.model)
+        if existing is None:
+            repo.insert_ledger(ctx.conn, ctx.sid, usage, state=State.FINAL, origin=ctx.origin, now=ctx.now)
+            ctx.stats.inserted += 1
+        else:
+            _observe(ctx, existing, usage)
+
+
+def _settle_day(ctx: _Ctx, day: str, rows: list[DayUsage], *, accept: bool) -> None:
+    """First capture after the grace period: take the source's rows if they did not shrink, then freeze."""
+    if accept:
+        for usage in rows:
+            existing = repo.ledger_row(ctx.conn, ctx.sid, day, usage.model)
+            if existing is None:
+                repo.insert_ledger(ctx.conn, ctx.sid, usage, state=State.FINAL, origin=ctx.origin, now=ctx.now)
+                ctx.stats.inserted += 1
+                continue
+            if existing["state"] == State.FINAL:
+                _observe(ctx, existing, usage)
+                continue
+            if repo.row_values(existing) != usage.values():
+                repo.update_ledger_values(ctx.conn, ctx.sid, usage, origin=ctx.origin, now=ctx.now)
+                ctx.stats.updated += 1
+            else:
+                ctx.stats.unchanged += 1
+            repo.finalize_row(ctx.conn, ctx.sid, day, usage.model, ctx.now)
+            ctx.stats.finalized += 1
+        return
+    # The source now reports less than the ledger holds: keep what we have.
+    for usage in rows:
+        existing = repo.ledger_row(ctx.conn, ctx.sid, day, usage.model)
+        if existing is None:
+            if _record_revision(ctx, day, usage.model, None, kind="changed", observed=usage):
+                ctx.stats.revisions += 1
+            continue
+        if existing["state"] == State.OPEN:
+            repo.finalize_row(ctx.conn, ctx.sid, day, usage.model, ctx.now)
+            ctx.stats.finalized += 1
+        _observe(ctx, existing, usage)
+
+
+def _observe_final_day(ctx: _Ctx, rows: list[DayUsage]) -> None:
+    """A settled day: never change it, only note disagreements."""
+    for usage in rows:
+        existing = repo.ledger_row(ctx.conn, ctx.sid, usage.day, usage.model)
+        if existing is None:
+            if _record_revision(ctx, usage.day, usage.model, None, kind="changed", observed=usage):
+                ctx.stats.revisions += 1
+        else:
+            _observe(ctx, existing, usage)
+
+
+def _observe(ctx: _Ctx, existing: sqlite3.Row, usage: DayUsage) -> None:
+    if _record_revision(ctx, usage.day, usage.model, existing, kind="changed", observed=usage):
+        ctx.stats.revisions += 1
+    else:
+        ctx.stats.unchanged += 1
 
 
 def apply_backfill(
@@ -127,7 +230,6 @@ def apply_backfill(
     today = local_today(settings, now_utc)
     sid = repo.series_id(conn, series)
     _check_unique(rows)
-    stats.finalized = finalize_due(conn, settings=settings, now_utc=now_utc)
     for usage in rows:
         if is_open(usage.day, today, settings.grace_days):
             stats.skipped_open += 1
@@ -160,17 +262,6 @@ def apply_backfill(
     return stats
 
 
-def finalize_due(conn: sqlite3.Connection, *, settings: Settings, now_utc: datetime) -> int:
-    """Freeze every open row whose grace period has ended."""
-    today = local_today(settings, now_utc)
-    boundary = oldest_open_day(today, settings.grace_days).isoformat()
-    due = repo.open_rows_due(conn, boundary)
-    now = iso(now_utc)
-    for row in due:
-        repo.finalize_row(conn, row["series_id"], row["day"], row["model"], now)
-    return len(due)
-
-
 def _check_unique(rows: list[DayUsage]) -> None:
     keys = [(u.day, u.model) for u in rows]
     if len(keys) != len(set(keys)):
@@ -178,51 +269,50 @@ def _check_unique(rows: list[DayUsage]) -> None:
         raise ValueError(f"source produced duplicate day/model rows: {dupes[:5]}")
 
 
-def _baseline(conn: sqlite3.Connection, row: sqlite3.Row) -> tuple:
-    """What the source said most recently about a row, as (kind, total, cost).
+def _baseline(conn: sqlite3.Connection, sid: int, day: str, model: str, row: sqlite3.Row | None) -> tuple:
+    """What the source said most recently about a key, as (kind, total, cost).
 
     * after a recorded observation: that observation
     * after a backfill replaced the row: the source's value at that moment
     * a row written by a capture: its own value
-    * a row inserted by a backfill: the source never had it, so "missing"
+    * a row inserted by a backfill, or no row at all: the source never had it, so "missing"
     """
-    last = repo.last_revision(conn, row["series_id"], row["day"], row["model"])
+    last = repo.last_revision(conn, sid, day, model)
     if last is not None:
         if last["kind"] == "replaced":
             return ("changed", last["ledger_total"], last["ledger_cost"])
         return (last["kind"], last["observed_total"], last["observed_cost"])
-    if row["origin"].startswith("backfill:"):
+    if row is None or row["origin"].startswith("backfill:"):
         return ("missing", None, None)
     return ("changed", row["total"], row["cost_micros"])
 
 
 def _record_revision(
-    conn: sqlite3.Connection,
-    row: sqlite3.Row,
+    ctx: _Ctx,
+    day: str,
+    model: str,
+    row: sqlite3.Row | None,
     *,
     kind: str,
     observed: DayUsage | None,
-    now: str,
-    capture_id: int,
-    origin: str,
 ) -> bool:
-    """Record what the source now says about a row, unless it is what it said last time."""
+    """Record what the source now says about a key, unless it is what it said last time."""
     obs_total = observed.total if observed else None
     obs_cost = observed.cost_micros if observed else None
-    if _baseline(conn, row) == (kind, obs_total, obs_cost):
+    if _baseline(ctx.conn, ctx.sid, day, model, row) == (kind, obs_total, obs_cost):
         return False
     repo.add_revision(
-        conn,
-        row["series_id"],
-        row["day"],
-        row["model"],
+        ctx.conn,
+        ctx.sid,
+        day,
+        model,
         kind=kind,
-        now=now,
-        capture_id=capture_id,
-        origin=origin,
+        now=ctx.now,
+        capture_id=ctx.capture_id,
+        origin=ctx.origin,
         observed_total=obs_total,
         observed_cost=obs_cost,
-        ledger_total=row["total"],
-        ledger_cost=row["cost_micros"],
+        ledger_total=row["total"] if row is not None else None,
+        ledger_cost=row["cost_micros"] if row is not None else None,
     )
     return True

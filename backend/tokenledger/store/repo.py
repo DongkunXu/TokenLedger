@@ -144,13 +144,6 @@ def finalize_row(conn: sqlite3.Connection, sid: int, day: str, model: str, now: 
     )
 
 
-def open_rows_due(conn: sqlite3.Connection, last_open_day_excl: str) -> list[sqlite3.Row]:
-    """Open rows whose day is strictly before ``last_open_day_excl`` (the oldest day still open)."""
-    return conn.execute(
-        "SELECT series_id, day, model FROM ledger WHERE state='open' AND day < ?", (last_open_day_excl,)
-    ).fetchall()
-
-
 def ledger_rows_in_window(conn: sqlite3.Connection, sid: int, start: str, end: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM ledger WHERE series_id=? AND day BETWEEN ? AND ?", (sid, start, end)
