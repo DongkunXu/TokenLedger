@@ -11,7 +11,7 @@ import { KpiRow } from "./components/KpiRow";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { Card, Segmented } from "./components/ui";
 import { type Lang, STRINGS, providerName } from "./i18n/strings";
-import { usd } from "./lib/format";
+import { shortDate, usd } from "./lib/format";
 import { type Metric, PROVIDER_ORDER } from "./lib/series";
 import { useTheme } from "./theme/theme";
 
@@ -116,6 +116,7 @@ export default function App() {
 
   return (
     <div className="page">
+      <div className="backdrop" aria-hidden="true" />
       <Header
         t={t}
         lang={lang}
@@ -137,10 +138,11 @@ export default function App() {
 
       {data && data.summary.tokens > 0 && (
         <main>
-          <KpiRow summary={data.summary} t={t} lang={lang} />
+          <KpiRow summary={data.summary} daily={data.daily} t={t} lang={lang} />
 
           <Card
             title={t.heatmap.title}
+            caption={`${shortDate(data.daily.start, lang)} – ${shortDate(data.daily.end, lang)} · ${t.heatmap.activeDays(data.summary.active_days)}`}
             delay={240}
             actions={
               <>
@@ -167,6 +169,7 @@ export default function App() {
 
           <Card
             title={t.trend.title}
+            caption={`${shortDate(data.daily.start, lang)} – ${shortDate(data.daily.end, lang)}`}
             delay={300}
             actions={
               <Segmented

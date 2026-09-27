@@ -13,12 +13,14 @@ export function baseStyle() {
     animationEasing: "cubicOut" as const,
     animationEasingUpdate: "cubicInOut" as const,
     tooltip: {
-      backgroundColor: cssVar("--surface"),
-      borderColor: cssVar("--border-strong"),
+      backgroundColor: cssVar("--tooltip-bg"),
+      borderColor: cssVar("--glass-border"),
       borderWidth: 1,
       padding: [10, 12],
       textStyle: { color: cssVar("--text"), fontFamily: font, fontSize: 12 },
-      extraCssText: `box-shadow:${cssVar("--shadow")};border-radius:10px;`,
+      extraCssText:
+        `box-shadow:inset 0 1px 0 ${cssVar("--glass-highlight")},${cssVar("--shadow")};border-radius:10px;` +
+        "backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);" /* inline style: not minified */,
     },
     axisLabel: { color: text3, fontSize: 11, fontFamily: font },
     splitLine: { lineStyle: { color: border, type: [3, 4] as number[] } },

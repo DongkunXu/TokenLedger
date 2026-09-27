@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-export function Card({ title, actions, children, className = "", delay = 0 }: {
+export function Card({ title, caption, actions, children, className = "", delay = 0 }: {
   title?: ReactNode;
+  caption?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -11,7 +12,12 @@ export function Card({ title, actions, children, className = "", delay = 0 }: {
     <section className={`card ${className}`} style={{ animationDelay: `${delay}ms` }}>
       {(title || actions) && (
         <header className="card-head">
-          {title && <h2>{title}</h2>}
+          {title && (
+            <h2>
+              {title}
+              {caption && <span className="card-caption">{caption}</span>}
+            </h2>
+          )}
           {actions && <div className="card-actions">{actions}</div>}
         </header>
       )}

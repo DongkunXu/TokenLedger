@@ -123,8 +123,9 @@ export function TrendChart({ daily, mode, t, lang, themeKey }: Props) {
         splitLine: base.splitLine,
       },
       dataZoom: [
-        // Plain wheel scrolls the page; pinch (Ctrl+wheel) zooms, drag pans.
-        { type: "inside", throttle: 30, zoomOnMouseWheel: "ctrl", moveOnMouseWheel: false },
+        // The wheel always scrolls the page: ECharts cancels wheel events whenever wheel zoom is
+        // enabled, even when limited to Ctrl. Drag pans; the slider below zooms.
+        { type: "inside", throttle: 30, zoomOnMouseWheel: false, moveOnMouseWheel: false, moveOnMouseMove: true },
         {
           type: "slider",
           height: 18,

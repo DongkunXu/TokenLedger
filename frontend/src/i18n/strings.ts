@@ -19,7 +19,15 @@ const zh = {
     streak: (n: number) => `连续 ${n} 天`,
     peak: "峰值日",
   },
-  heatmap: { title: "每日活动", tokens: "Token", cost: "花费", all: "全部", less: "少", more: "多" },
+  heatmap: {
+    title: "每日活动",
+    tokens: "Token",
+    cost: "花费",
+    all: "全部",
+    less: "少",
+    more: "多",
+    activeDays: (n: number) => `${n} 天有用量`,
+  },
   trend: { title: "用量趋势", tokens: "Token", cost: "花费", cumulative: "累计", avg7: "7 日均值" },
   models: { title: "模型", byTokens: "按 Token", byCost: "按花费", unpriced: "未定价" },
   composition: {
@@ -74,7 +82,15 @@ const en: Strings = {
     streak: (n: number) => `${n}-day streak`,
     peak: "Peak day",
   },
-  heatmap: { title: "Daily activity", tokens: "Tokens", cost: "Cost", all: "All", less: "Less", more: "More" },
+  heatmap: {
+    title: "Daily activity",
+    tokens: "Tokens",
+    cost: "Cost",
+    all: "All",
+    less: "Less",
+    more: "More",
+    activeDays: (n: number) => `${n} active days`,
+  },
   trend: { title: "Usage trend", tokens: "Tokens", cost: "Cost", cumulative: "Cumulative", avg7: "7-day average" },
   models: { title: "Models", byTokens: "By tokens", byCost: "By cost", unpriced: "unpriced" },
   composition: {

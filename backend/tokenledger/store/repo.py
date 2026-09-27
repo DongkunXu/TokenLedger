@@ -157,6 +157,12 @@ def last_revision(conn: sqlite3.Connection, sid: int, day: str, model: str) -> s
     ).fetchone()
 
 
+def revisions_for(conn: sqlite3.Connection, sid: int, day: str, model: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM revisions WHERE series_id=? AND day=? AND model=? ORDER BY id", (sid, day, model)
+    ).fetchall()
+
+
 def add_revision(
     conn: sqlite3.Connection,
     sid: int,

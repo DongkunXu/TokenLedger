@@ -4,10 +4,15 @@
   box-sizing: border-box;
 }
 
+html {
+  background: var(--bg);
+  transition: background-color 0.4s var(--ease);
+}
+
+/* The body stays transparent: a body background would paint over the fixed .backdrop layer. */
 html,
 body {
   margin: 0;
-  background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
@@ -16,12 +21,41 @@ body {
 
 body {
   min-height: 100vh;
+  transition: color 0.4s var(--ease);
+}
+
+/* Backdrop: soft colour orbs under a fine grid, finished with film grain. Fixed so cards
+   glide over it; the glass blur picks up the orbs. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
   background:
-    radial-gradient(1200px 500px at 12% -10%, var(--bg-glow), transparent 70%),
-    radial-gradient(900px 420px at 95% -5%, color-mix(in srgb, var(--claude) 7%, transparent), transparent 70%),
-    var(--bg);
-  background-attachment: fixed;
-  transition: background-color 0.4s var(--ease), color 0.4s var(--ease);
+    radial-gradient(38vw 30vw at 8% 4%, var(--orb-1), transparent 70%),
+    radial-gradient(34vw 28vw at 96% 12%, var(--orb-2), transparent 70%),
+    radial-gradient(40vw 32vw at 60% 104%, var(--orb-3), transparent 70%);
+}
+
+.backdrop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+  background-position: -1px -1px;
+  mask-image: radial-gradient(ellipse 90% 75% at 50% 30%, #000 40%, transparent 100%);
+}
+
+.backdrop::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 button {
@@ -38,24 +72,34 @@ button:focus-visible {
 .page {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 28px 28px 40px;
+  padding: 0 28px 44px;
 }
 
 main {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 /* ---------- top bar ---------- */
 
 .topbar {
+  position: sticky;
+  top: 12px;
+  z-index: 10;
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-areas: "brand controls" "brand meta";
   align-items: center;
-  gap: 4px 16px;
-  margin-bottom: 22px;
+  gap: 2px 16px;
+  margin: 12px 0 22px;
+  padding: 10px 14px 10px 16px;
+  border-radius: var(--radius);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  /* Stronger than the cards: content scrolls underneath the header and must not show through its text. */
+  backdrop-filter: blur(28px) saturate(170%);
 }
 
 .brand {
@@ -114,7 +158,7 @@ main {
   justify-content: center;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text-2);
   transition: color 0.2s, border-color 0.2s, transform 0.2s var(--ease);
 }
@@ -188,7 +232,7 @@ main {
   position: relative;
   display: inline-flex;
   padding: 3px;
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
@@ -220,22 +264,43 @@ main {
   top: 3px;
   bottom: 3px;
   left: 0;
-  border-radius: 7px;
-  background: var(--surface);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 1px var(--border);
+  border-radius: 6px;
+  background: var(--glass-bg-strong);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border);
   transition: transform 0.35s var(--ease), width 0.35s var(--ease);
 }
 
 /* ---------- cards ---------- */
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow), 0 0 0 0 var(--glass-glow);
+  backdrop-filter: blur(var(--blur)) saturate(160%);
   padding: 18px 20px;
   animation: rise 0.7s var(--ease) both;
-  transition: background-color 0.4s var(--ease), border-color 0.4s var(--ease);
+  transition: box-shadow 0.35s var(--ease), border-color 0.35s var(--ease), transform 0.35s var(--ease),
+    background-color 0.4s var(--ease);
+}
+
+/* Hairline sheen along the top edge, fading out to the sides. */
+.card::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--codex) 45%, transparent), transparent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow), 0 0 28px -6px var(--glass-glow);
 }
 
 @keyframes rise {
@@ -260,9 +325,19 @@ main {
 
 .card-head h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 620;
   letter-spacing: -0.005em;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.card-caption {
+  font-size: 11.5px;
+  font-weight: 450;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .card-actions {
@@ -292,14 +367,33 @@ main {
 }
 
 .kpi {
-  padding: 16px 18px;
+  padding: 16px 18px 46px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow: hidden;
+}
+
+.kpi > *:not(.spark) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Trend strip along the bottom edge of each KPI card, clear of the text above it.
+   Width must be explicit: an absolutely positioned SVG ignores left/right stretching. */
+.spark {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 36px;
+  pointer-events: none;
 }
 
 .kpi-label {
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
   color: var(--text-3);
   display: flex;
   gap: 6px;
@@ -370,6 +464,11 @@ main {
 
 .heatmap {
   width: 100%;
+}
+
+.heatmap-canvas {
+  margin: 0 auto;
+  max-width: 100%;
 }
 
 .heat-legend {
@@ -508,6 +607,7 @@ main {
     padding: 18px 14px 32px;
   }
   .topbar {
+    position: static;
     grid-template-columns: 1fr;
     grid-template-areas: "brand" "controls" "meta";
   }

@@ -16,7 +16,7 @@ the gap between captures, a day is never frozen with a partial value.
 
 After that the rows are *final* and never change on their own. Later
 observations that disagree (including the day disappearing) are only written to
-``revisions``, once per distinct observed value.
+``revisions``, once per distinct claim.
 
 Backfill is the one deliberate exception: it writes final rows directly and
 may replace a final row, recording the replaced value as a ``replaced``
@@ -269,22 +269,28 @@ def _check_unique(rows: list[DayUsage]) -> None:
         raise ValueError(f"source produced duplicate day/model rows: {dupes[:5]}")
 
 
-def _baseline(conn: sqlite3.Connection, sid: int, day: str, model: str, row: sqlite3.Row | None) -> tuple:
-    """What the source said most recently about a key, as (kind, total, cost).
+def _seen_claims(conn: sqlite3.Connection, sid: int, day: str, model: str, row: sqlite3.Row | None) -> set[tuple]:
+    """Every claim the source has already made about a key, as (kind, total, cost).
 
-    * after a recorded observation: that observation
-    * after a backfill replaced the row: the source's value at that moment
+    * each recorded observation
+    * for a row a backfill replaced: the source's value at that moment
     * a row written by a capture: its own value
-    * a row inserted by a backfill, or no row at all: the source never had it, so "missing"
+    * a row inserted by a backfill (never replaced), or no row at all: the source never
+      had it, so "missing"
     """
-    last = repo.last_revision(conn, sid, day, model)
-    if last is not None:
-        if last["kind"] == "replaced":
-            return ("changed", last["ledger_total"], last["ledger_cost"])
-        return (last["kind"], last["observed_total"], last["observed_cost"])
-    if row is None or row["origin"].startswith("backfill:"):
-        return ("missing", None, None)
-    return ("changed", row["total"], row["cost_micros"])
+    revisions = repo.revisions_for(conn, sid, day, model)
+    seen: set[tuple] = set()
+    replaced = any(rev["kind"] == "replaced" for rev in revisions)
+    if row is None or (row["origin"].startswith("backfill:") and not replaced):
+        seen.add(("missing", None, None))
+    elif not row["origin"].startswith("backfill:"):
+        seen.add(("changed", row["total"], row["cost_micros"]))
+    for rev in revisions:
+        if rev["kind"] == "replaced":
+            seen.add(("changed", rev["ledger_total"], rev["ledger_cost"]))
+        else:
+            seen.add((rev["kind"], rev["observed_total"], rev["observed_cost"]))
+    return seen
 
 
 def _record_revision(
@@ -296,10 +302,14 @@ def _record_revision(
     kind: str,
     observed: DayUsage | None,
 ) -> bool:
-    """Record what the source now says about a key, unless it is what it said last time."""
+    """Record what the source now says about a key, unless it has said exactly that before.
+
+    A source that flips between two values (CodexBar did this for one Codex day) yields
+    two records, not one per capture.
+    """
     obs_total = observed.total if observed else None
     obs_cost = observed.cost_micros if observed else None
-    if _baseline(ctx.conn, ctx.sid, day, model, row) == (kind, obs_total, obs_cost):
+    if (kind, obs_total, obs_cost) in _seen_claims(ctx.conn, ctx.sid, day, model, row):
         return False
     repo.add_revision(
         ctx.conn,

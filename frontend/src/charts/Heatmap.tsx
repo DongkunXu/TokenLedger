@@ -17,20 +17,44 @@ interface Props {
   themeKey: string;
 }
 
-const LEFT = 30;
-const TOP = 26;
+const LEFT = 30; // room for weekday labels
+const RIGHT = 4;
+const TOP = 24; // room for month labels
+const BOTTOM = 4;
+const YEAR_WEEKS = 53;
+const MIN_CELL = 11;
+const MAX_CELL = 16;
+
+// Cell size is chosen so a full year fills the card; shorter ranges keep the same square
+// cells and simply take fewer columns, so every range looks the same.
+function cellFor(width: number): number {
+  return Math.max(MIN_CELL, Math.min(MAX_CELL, Math.floor((width - LEFT - RIGHT) / YEAR_WEEKS)));
+}
+
+function weekCount(start: string, days: number): number {
+  const first = new Date(`${start}T12:00:00`);
+  const offset = (first.getDay() + 6) % 7; // Monday-first
+  return Math.ceil((days + offset) / 7);
+}
+
+interface RenderApi {
+  value: (dim: number) => string | number;
+  coord: (point: (string | number)[]) => number[];
+  visual: (key: string) => string;
+}
 
 export function Heatmap({ daily, metric, provider, t, lang, themeKey }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
 
-  const { option, height } = useMemo(() => {
+  const { option, height, chartWidth } = useMemo(() => {
     const providers = orderedProviders(daily).filter((p) => provider === "all" || p.provider === provider);
     const values = daily.days.map((_, i) => providers.reduce((sum, p) => sum + metricValue(p.values[i], metric), 0));
-    const first = new Date(`${daily.start}T12:00:00`);
-    const offset = (first.getDay() + 6) % 7; // Monday-first
-    const weeks = Math.ceil((daily.days.length + offset) / 7);
-    const cell = Math.max(9, Math.min(20, Math.floor((width - LEFT - 8) / Math.max(weeks, 1))));
-    const h = TOP + cell * 7 + 8;
+    const cell = cellFor(width);
+    const weeks = weekCount(daily.start, daily.days.length);
+    const gap = Math.max(2, Math.round(cell * 0.16));
+    const radius = Math.max(2, Math.round(cell * 0.24));
+    const chartWidth = Math.min(width, LEFT + RIGHT + weeks * cell);
+    const height = TOP + BOTTOM + 7 * cell;
     const [, t1, t2, t3] = quantileThresholds(values, 4);
     const heat = [0, 1, 2, 3, 4].map((i) => cssVar(`--heat-${i}`));
     const base = baseStyle();
@@ -40,21 +64,21 @@ export function Heatmap({ daily, metric, provider, t, lang, themeKey }: Props) {
       ...base,
       tooltip: {
         ...base.tooltip,
-        formatter: (p: { data: [string, number]; dataIndex: number }) => {
+        formatter: (p: { dataIndex: number }) => {
           const i = p.dataIndex;
-          const day = daily.days[i];
           const rows = providers
             .map((pr) => ({ pr, v: pr.values[i] }))
-            .filter(({ v }) => v && (metric === "tokens" ? v.tokens > 0 : (v.cost_usd ?? 0) > 0))
+            .filter(({ v }) => v && metricValue(v, metric) > 0)
             .map(({ pr, v }) => tooltipRow(providerColor(pr.provider), providerName(t, pr.provider), fmt(metricValue(v, metric))));
           const open = providers.some((pr) => pr.values[i]?.open);
           const total = rows.length > 1 ? tooltipRow("transparent", t.tooltip.total, fmt(values[i])) : "";
-          return tooltipTitle(shortDate(day, lang), open ? t.tooltip.open : undefined) + (rows.join("") || fmt(0)) + total;
+          return tooltipTitle(shortDate(daily.days[i], lang), open ? t.tooltip.open : undefined) + (rows.join("") || fmt(0)) + total;
         },
       },
       visualMap: {
         show: false,
         type: "piecewise",
+        dimension: 1,
         pieces: [
           { max: 0, color: heat[0] },
           { gt: 0, lt: t1, color: heat[1] },
@@ -66,7 +90,6 @@ export function Heatmap({ daily, metric, provider, t, lang, themeKey }: Props) {
       calendar: {
         range: [daily.start, daily.end],
         left: LEFT,
-        right: 8,
         top: TOP,
         cellSize: [cell, cell],
         firstDay: 1,
@@ -89,21 +112,33 @@ export function Heatmap({ daily, metric, provider, t, lang, themeKey }: Props) {
       },
       series: [
         {
-          type: "heatmap",
+          type: "custom",
           coordinateSystem: "calendar",
           data: daily.days.map((d, i) => [d, values[i]]),
-          itemStyle: { borderColor: cssVar("--surface"), borderWidth: Math.max(2, Math.round(cell / 6)), borderRadius: Math.round(cell / 4) },
-          emphasis: { itemStyle: { borderColor: cssVar("--text-2"), borderWidth: 1.5 } },
-          animationDelay: (i: number) => i * 2,
+          renderItem: (_params: unknown, api: RenderApi) => {
+            const [x, y] = api.coord([api.value(0)]);
+            const size = cell - gap;
+            return {
+              type: "rect",
+              shape: { x: x - size / 2, y: y - size / 2, width: size, height: size, r: radius },
+              style: { fill: api.visual("color") },
+              emphasis: { style: { stroke: cssVar("--text-2"), lineWidth: 1.2 } },
+            };
+          },
+          animationDurationUpdate: 500,
         },
       ],
     };
-    return { option, height: h };
+    return { option, height, chartWidth };
   }, [daily, metric, provider, t, lang, width, themeKey]);
 
   return (
     <div ref={ref} className="heatmap">
-      {width > 0 && <Chart option={option} height={height} themeKey={themeKey} ariaLabel={t.heatmap.title} />}
+      {width > 0 && (
+        <div className="heatmap-canvas" style={{ width: chartWidth }}>
+          <Chart option={option} height={height} themeKey={themeKey} ariaLabel={t.heatmap.title} />
+        </div>
+      )}
       <div className="heat-legend">
         <span>{t.heatmap.less}</span>
         {[0, 1, 2, 3, 4].map((i) => (

@@ -61,7 +61,16 @@ def test_final_divergence_recorded_once_per_distinct_value(conn, settings):
     for hour, value in [(11, 300), (12, 300), (13, 320), (14, 500)]:
         run_capture(conn, settings, capture([usage("2026-08-01", value)]), f"2026-09-27T{hour}:00:00")
     assert row(conn, "2026-08-01")["total"] == 500
-    assert [x["observed_total"] for x in revisions(conn)] == [300, 320, 500]
+    # returning to the ledger's own value is not a new claim
+    assert [x["observed_total"] for x in revisions(conn)] == [300, 320]
+
+
+def test_flip_flopping_source_is_recorded_once_per_value(conn, settings):
+    run_capture(conn, settings, capture([usage("2026-08-01", 66)]), "2026-09-27T10:00:00")
+    for hour, value in [(11, 51), (12, 66), (13, 51), (14, 66), (15, 51)]:
+        run_capture(conn, settings, capture([usage("2026-08-01", value)]), f"2026-09-27T{hour}:00:00")
+    assert [x["observed_total"] for x in revisions(conn)] == [51]
+    assert row(conn, "2026-08-01")["total"] == 66
 
 
 def test_missing_day_inside_window_keeps_value(conn, settings):

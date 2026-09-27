@@ -1,5 +1,5 @@
 // Only the ECharts pieces the dashboard uses, to keep the bundle small.
-import { BarChart, HeatmapChart, LineChart } from "echarts/charts";
+import { BarChart, CustomChart, LineChart } from "echarts/charts";
 import {
   CalendarComponent,
   DataZoomComponent,
@@ -14,7 +14,7 @@ import { CanvasRenderer } from "echarts/renderers";
 echarts.use([
   BarChart,
   LineChart,
-  HeatmapChart,
+  CustomChart,
   CalendarComponent,
   DataZoomComponent,
   GridComponent,
