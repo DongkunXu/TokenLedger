@@ -1,0 +1,30 @@
+[project]
+name = "tokenledger"
+version = "0.1.0"
+description = "Append-only ledger of AI token usage and estimated cost"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "mcp>=2.2,<3",
+]
+
+[project.scripts]
+tokenledger = "tokenledger.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tokenledger"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

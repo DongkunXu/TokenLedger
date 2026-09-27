@@ -1,0 +1,11 @@
+# Ledger data belongs to the user and never goes into git
+/data/
+
+# Build outputs, caches, environments
+/.build/
+/backend/.venv/
+/frontend/node_modules/
+/frontend/dist/
+__pycache__/
+*.pyc
+.DS_Store

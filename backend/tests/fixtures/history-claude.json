@@ -1,0 +1,36 @@
+{
+ "version": 1,
+ "preferredAccountKey": "acct",
+ "sessionEquivalentWindowPairIdentities": {},
+ "unscoped": [],
+ "accounts": {
+  "acct": [
+   {
+    "name": "session",
+    "windowMinutes": 300,
+    "entries": [
+     {
+      "capturedAt": "2026-09-26T10:00:00Z",
+      "resetsAt": "2026-09-26T12:00:00Z",
+      "usedPercent": 25
+     },
+     {
+      "capturedAt": "2026-09-26T11:00:00Z",
+      "resetsAt": "2026-09-26T12:00:00Z",
+      "usedPercent": 40
+     }
+    ]
+   },
+   {
+    "name": "weekly",
+    "windowMinutes": 10080,
+    "entries": [
+     {
+      "capturedAt": "2026-09-26T10:00:00Z",
+      "usedPercent": 3
+     }
+    ]
+   }
+  ]
+ }
+}

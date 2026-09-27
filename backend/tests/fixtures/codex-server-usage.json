@@ -1,0 +1,20 @@
+{
+ "id": 1,
+ "result": {
+  "summary": {
+   "lifetimeTokens": 3000,
+   "peakDailyTokens": 2000
+  },
+  "dailyUsageBuckets": [
+   {
+    "startDate": "2026-02-26",
+    "tokens": 1000
+   },
+   {
+    "startDate": "2026-09-26",
+    "tokens": 2000
+   }
+  ],
+  "threadUsage": null
+ }
+}

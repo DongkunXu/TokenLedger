@@ -1,0 +1,117 @@
+// Every piece of UI text lives here. Components never hardcode text.
+
+export type Lang = "zh" | "en";
+
+const zh = {
+  appTitle: "TokenLedger",
+  appSubtitle: "AI 用量账本",
+  range: { d30: "30 天", d90: "90 天", d180: "半年", y1: "一年", all: "全部" },
+  theme: { system: "跟随系统", light: "亮色", dark: "暗色" },
+  refresh: "立即采集",
+  refreshing: "采集中…",
+  refreshFailed: "采集失败",
+  lastCapture: "上次采集",
+  kpi: {
+    tokens: "总 Token",
+    cost: "估算花费",
+    costHint: "按 API 标价",
+    activeDays: "活跃天数",
+    streak: (n: number) => `连续 ${n} 天`,
+    peak: "峰值日",
+  },
+  heatmap: { title: "每日活动", tokens: "Token", cost: "花费", all: "全部", less: "少", more: "多" },
+  trend: { title: "用量趋势", tokens: "Token", cost: "花费", cumulative: "累计", avg7: "7 日均值" },
+  models: { title: "模型", byTokens: "按 Token", byCost: "按花费", unpriced: "未定价" },
+  composition: {
+    title: "Token 构成",
+    cache_read: "缓存读取",
+    cache_write: "缓存写入",
+    input_uncached: "输入",
+    output: "输出",
+    perMillion: "每百万 Token",
+  },
+  quota: { title: "额度峰值", weekly: "每周", session: "5 小时", weekEnding: "该周截至", day: "当天最高" },
+  sources: {
+    title: "数据来源",
+    open: (n: number) => `${n} 行统计中`,
+    final: (n: number) => `${n} 行已定稿`,
+    revisions: (n: number) => `${n} 条来源变更`,
+    codexCoverage: (p: string) => `Codex 金额覆盖 ${p} 的 Token`,
+    failures: "最近失败",
+    none: "暂无",
+  },
+  tooltip: {
+    total: "合计",
+    open: "统计中",
+    account: "账号级",
+    machine: "本机",
+    recomputed: "按规则重算",
+    noCost: "无金额",
+  },
+  providers: { claude: "Claude", codex: "Codex", antigravity: "Antigravity" } as Record<string, string>,
+  loading: "加载中…",
+  error: "无法连接后端",
+  empty: "还没有数据",
+  footer: "金额按 API 标价估算 · 每天过 3 天定稿",
+};
+
+export type Strings = typeof zh;
+
+const en: Strings = {
+  appTitle: "TokenLedger",
+  appSubtitle: "AI usage ledger",
+  range: { d30: "30 days", d90: "90 days", d180: "6 months", y1: "1 year", all: "All" },
+  theme: { system: "System", light: "Light", dark: "Dark" },
+  refresh: "Capture now",
+  refreshing: "Capturing…",
+  refreshFailed: "Capture failed",
+  lastCapture: "Last capture",
+  kpi: {
+    tokens: "Total tokens",
+    cost: "Estimated cost",
+    costHint: "at API list price",
+    activeDays: "Active days",
+    streak: (n: number) => `${n}-day streak`,
+    peak: "Peak day",
+  },
+  heatmap: { title: "Daily activity", tokens: "Tokens", cost: "Cost", all: "All", less: "Less", more: "More" },
+  trend: { title: "Usage trend", tokens: "Tokens", cost: "Cost", cumulative: "Cumulative", avg7: "7-day average" },
+  models: { title: "Models", byTokens: "By tokens", byCost: "By cost", unpriced: "unpriced" },
+  composition: {
+    title: "Token mix",
+    cache_read: "Cache read",
+    cache_write: "Cache write",
+    input_uncached: "Input",
+    output: "Output",
+    perMillion: "per million tokens",
+  },
+  quota: { title: "Quota peaks", weekly: "Weekly", session: "5-hour", weekEnding: "Week ending", day: "Daily high" },
+  sources: {
+    title: "Sources",
+    open: (n: number) => `${n} rows still open`,
+    final: (n: number) => `${n} rows final`,
+    revisions: (n: number) => `${n} source changes`,
+    codexCoverage: (p: string) => `Codex cost covers ${p} of tokens`,
+    failures: "Recent failures",
+    none: "None",
+  },
+  tooltip: {
+    total: "Total",
+    open: "still open",
+    account: "account",
+    machine: "this Mac",
+    recomputed: "recomputed",
+    noCost: "no cost",
+  },
+  providers: { claude: "Claude", codex: "Codex", antigravity: "Antigravity" },
+  loading: "Loading…",
+  error: "Cannot reach the backend",
+  empty: "No data yet",
+  footer: "Cost at API list prices · days finalize after 3 days",
+};
+
+export const STRINGS: Record<Lang, Strings> = { zh, en };
+
+export function providerName(t: Strings, provider: string): string {
+  return t.providers[provider] ?? provider;
+}

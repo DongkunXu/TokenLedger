@@ -1,0 +1,63 @@
+[
+ {
+  "provider": "claude",
+  "source": "local",
+  "historyDays": 365,
+  "historyCoverageIsEstablished": true,
+  "provenance": "listPriceEstimate",
+  "currencyCode": "USD",
+  "coverage": {
+   "priced": 2,
+   "unpriced": 0,
+   "estimated": 0,
+   "unmetered": 0
+  },
+  "projects": [],
+  "daily": [
+   {
+    "date": "2026-08-01",
+    "inputTokens": 100,
+    "cacheReadTokens": 1000,
+    "cacheCreationTokens": 200,
+    "outputTokens": 50,
+    "totalTokens": 1350,
+    "totalCost": 1.25,
+    "modelsUsed": [
+     "claude-opus-5"
+    ],
+    "modelBreakdowns": [
+     {
+      "modelName": "claude-opus-5",
+      "totalTokens": 1350,
+      "cost": 1.25
+     }
+    ]
+   },
+   {
+    "date": "2026-09-27",
+    "inputTokens": 10,
+    "cacheReadTokens": 500,
+    "cacheCreationTokens": 40,
+    "outputTokens": 5,
+    "totalTokens": 555,
+    "totalCost": 0.5,
+    "modelsUsed": [
+     "claude-opus-5-5",
+     "claude-sonnet-5"
+    ],
+    "modelBreakdowns": [
+     {
+      "modelName": "claude-opus-5-5",
+      "totalTokens": 500,
+      "cost": 0.45
+     },
+     {
+      "modelName": "claude-sonnet-5",
+      "totalTokens": 55,
+      "cost": 0.05
+     }
+    ]
+   }
+  ]
+ }
+]
