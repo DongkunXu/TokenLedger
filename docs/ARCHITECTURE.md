@@ -171,9 +171,19 @@ class QuotaSource(Protocol):
 
 交互式文档在 `/api/docs`。
 
+## 看板服务的生命周期
+
+`tokenledger serve`（`api/server.py`）是服务本身，`tokenledger dashboard`（`dashboard.py`）负责管理它：
+
+- `dashboard start` 用独立的会话（`start_new_session`）在后台启动服务，和启动它的终端脱钩，等到 `/api/status` 有响应才返回；同一时间只运行一个，端口被别的程序占用时直接报错
+- 服务启动时写 `.build/run/dashboard.json`（pid、端口、开始时间、空闲上限），退出时删除。管理命令通过它找到服务，并先确认这个 pid 确实是 TokenLedger 的服务再发信号；服务异常退出留下的状态文件会被识别并清掉
+- 退出方式都是正常关闭：SIGTERM（`dashboard stop`）、Ctrl+C、SIGHUP（所在终端被关）、空闲超时。uvicorn 处理完 SIGINT/SIGTERM 后会把信号重新抛出，服务预先装了 Python 层的处理函数接住，保证清理和日志都能完成。`stop` 等 10 秒还没退出才强制结束
+- 空闲计时按墙上时间算，只计页面和 API 请求；`dashboard status` 的健康检查带 `X-TokenLedger-Probe` 头，不算活动，否则查看状态本身就会让它永远不退出
+- 日志写在 `.build/run/dashboard.log`，每次启动覆盖，只保留最近一次运行
+
 ## MCP 工具
 
-`scripts/mcp.sh` 在 stdio 上提供：`ledger_status`、`usage_summary`、`daily_usage`、`model_breakdown`、`quota_history`、`quota_peaks`、`list_revisions`、`list_captures`（只读），以及 `run_capture`、`accept_revision`（会写账本）。
+`scripts/mcp.sh` 在 stdio 上提供：`ledger_status`、`usage_summary`、`daily_usage`、`model_breakdown`、`quota_history`、`quota_peaks`、`list_revisions`、`list_captures`、`dashboard_status`（只读），`run_capture`、`accept_revision`（会写账本），以及 `dashboard_start`、`dashboard_stop`（开关看板服务）。
 
 ## 以后接入 Windows
 

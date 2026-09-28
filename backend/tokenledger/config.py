@@ -30,6 +30,12 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def run_dir() -> Path:
+    """Runtime state of this machine's processes (dashboard pid file, log). Not user data."""
+    env = os.environ.get("TOKENLEDGER_RUN_DIR")
+    return Path(env) if env else project_root() / ".build" / "run"
+
+
 def data_dir() -> Path:
     env = os.environ.get("TOKENLEDGER_DATA_DIR")
     return Path(env) if env else project_root() / "data"

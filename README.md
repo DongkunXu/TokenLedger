@@ -7,12 +7,37 @@
 ## 快速使用
 
 ```bash
-scripts/serve.sh
+scripts/dashboard.sh open
 ```
 
-打开 http://127.0.0.1:8765/ 。第一次运行会先构建前端。更新了后端代码之后要重启这个服务（Ctrl+C 再运行一次）才会生效；前端改动重新构建后刷新页面即可。
+启动看板并打开 http://127.0.0.1:8765/ 。第一次运行会先构建前端。
+
+### 看板服务的开启和关闭
+
+| 命令 | 作用 |
+|---|---|
+| `scripts/dashboard.sh start` | 在后台启动（已在运行就什么也不做） |
+| `scripts/dashboard.sh open` | 需要时启动，并在浏览器里打开 |
+| `scripts/dashboard.sh stop` | 正常关闭 |
+| `scripts/dashboard.sh restart` | 重启；更新了后端代码之后需要这一步 |
+| `scripts/dashboard.sh status` | 是否在运行、地址、运行了多久 |
+| `scripts/dashboard.sh logs` | 这次（或上一次）运行的日志 |
+| `scripts/dashboard.sh run` | 改在当前终端里运行，Ctrl+C 结束 |
+
+也可以直接跟 Claude 说"打开看板"或"关掉看板"，MCP 里有对应的工具。
+
+服务在后台独立运行，关掉终端、重启 Claude 都不影响它，电脑睡眠时暂停、唤醒后继续。以下情况它会结束，每种都会在日志里写明原因：
+
+- 执行 `stop` 或 `restart`
+- 连续 12 小时没有任何页面请求，自动退出，免得忘了关一直挂着。用 `--idle-hours` 修改，设为 0 就一直运行
+- `run` 模式下按 Ctrl+C，或者关掉它所在的终端
+- 注销或关机
+
+前端改动重新构建后刷新页面即可；后端改动需要 `restart`。
 
 页头的"上次成功采集"是所有数据源最近一次都成功的时间，失败的尝试不会刷新它。某个数据源失败时，页头会一直显示红色提示，"数据来源"卡片里能看到具体错误和上次成功的时间，直到它下次采集成功。
+
+### 其他命令
 
 | 命令 | 作用 |
 |---|---|
@@ -68,5 +93,6 @@ research/   数据源调查记录和当时的原始快照
 | 前端依赖和构建 | `frontend/node_modules`、`frontend/dist` | `scripts/clean.sh` |
 | 定时采集 | `~/Library/LaunchAgents/io.github.dongkunxu.tokenledger.capture.plist` | `scripts/uninstall-agent.sh` |
 | 最近一次定时采集的输出 | `.build/logs/` | `scripts/clean.sh` |
+| 看板服务的状态文件和日志（只保留最近一次运行） | `.build/run/` | 服务退出时删除状态文件；`scripts/clean.sh` 会先停服务再清理 |
 
 采集一次大约 2 秒。每次采集的原始归档约 16 KB，按每天两次算，一年约 12 MB。

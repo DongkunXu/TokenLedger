@@ -31,6 +31,8 @@ def test_mcp_tools_read_the_configured_ledger(tmp_path, settings, monkeypatch):
     tools = {t.name: t for t in asyncio.run(mcp.list_tools())}
     assert tools["usage_summary"].annotations.read_only_hint is True
     assert tools["run_capture"].annotations.read_only_hint is False
+    assert tools["dashboard_status"].annotations.read_only_hint is True
+    assert tools["dashboard_stop"].annotations.read_only_hint is False
     summary = asyncio.run(call("usage_summary", {"start": "2026-09-24", "end": "2026-09-26"}))
     assert summary["tokens"] == 260
     rows = asyncio.run(call("daily_usage", {"start": "2026-09-26", "end": "2026-09-26", "provider": "codex"}))

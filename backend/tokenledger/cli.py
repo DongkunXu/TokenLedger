@@ -57,7 +57,33 @@ def cmd_status(args) -> int:
 def cmd_serve(args) -> int:
     from .api.server import serve
 
-    serve(host=args.host, port=args.port, open_browser=args.open)
+    serve(host=args.host, port=args.port, open_browser=args.open, idle_hours=args.idle_hours)
+    return 0
+
+
+def cmd_dashboard(args) -> int:
+    from . import dashboard
+
+    try:
+        port = args.port if args.port is not None else dashboard.DEFAULT_PORT
+        idle = args.idle_hours if args.idle_hours is not None else dashboard.DEFAULT_IDLE_HOURS
+        if args.action == "start":
+            result = dashboard.start(port=port, idle_hours=idle, open_browser=args.open)
+        elif args.action == "stop":
+            result = dashboard.stop()
+        elif args.action == "restart":
+            result = dashboard.restart(port=args.port, idle_hours=args.idle_hours, open_browser=args.open)
+        elif args.action == "open":
+            result = dashboard.start(port=port, idle_hours=idle, open_browser=True)
+        elif args.action == "logs":
+            print(dashboard.log_path().read_text() if dashboard.log_path().exists() else "(no log yet)", end="")
+            return 0
+        else:
+            result = dashboard.status()
+    except dashboard.DashboardError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2))
     return 0
 
 
@@ -87,11 +113,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("status", help="show recent captures and ledger counts")
     p.set_defaults(func=cmd_status)
 
-    p = sub.add_parser("serve", help="run the local dashboard")
+    p = sub.add_parser("serve", help="run the dashboard server in the foreground")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--open", action="store_true", help="open the dashboard in the browser")
+    p.add_argument("--idle-hours", type=float, default=12.0, help="stop after this long without requests (0 = never)")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("dashboard", help="manage the dashboard server in the background")
+    p.add_argument("action", choices=["start", "stop", "restart", "status", "open", "logs"])
+    p.add_argument("--port", type=int, default=None, help="default 8765 (restart keeps the current port)")
+    p.add_argument("--idle-hours", type=float, default=None, help="default 12 (restart keeps the current value)")
+    p.add_argument("--open", action="store_true", help="open the dashboard in the browser")
+    p.set_defaults(func=cmd_dashboard)
 
     p = sub.add_parser("mcp", help="run the MCP server on stdio")
     p.set_defaults(func=cmd_mcp)

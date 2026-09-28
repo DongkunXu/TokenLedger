@@ -137,5 +137,29 @@ def accept_revision(revision_id: int) -> dict:
         return accept(conn, paths, settings, revision_id, now_utc=capture.utc_now())
 
 
+@mcp.tool(annotations=READ_ONLY)
+def dashboard_status() -> dict:
+    """Whether the dashboard web server is running: pid, URL, uptime, idle limit, log path."""
+    from . import dashboard
+
+    return dashboard.status()
+
+
+@mcp.tool(annotations=WRITES)
+def dashboard_start(open_browser: bool = True, idle_hours: float = 12.0) -> dict:
+    """Start the dashboard server in the background (no-op if it runs). It stops by itself after idle_hours without requests (0 = never)."""
+    from . import dashboard
+
+    return dashboard.start(idle_hours=idle_hours, open_browser=open_browser)
+
+
+@mcp.tool(annotations=WRITES)
+def dashboard_stop() -> dict:
+    """Stop the dashboard server gracefully."""
+    from . import dashboard
+
+    return dashboard.stop()
+
+
 def main() -> None:
     mcp.run()
