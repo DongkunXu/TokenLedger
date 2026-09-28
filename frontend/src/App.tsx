@@ -103,9 +103,11 @@ export default function App() {
   };
 
   const themeKey = `${resolved}-${lang}`;
+  // When all data was last fully up to date: the oldest "last success" across sources.
+  // A failing source holds this back, so a failed attempt never looks like a fresh update.
   const lastCapture = useMemo(() => {
-    const times = data?.status.sources.map((s) => s.last_at) ?? [];
-    return times.length ? times.sort().at(-1)! : null;
+    const times = data?.status.sources.map((s) => s.last_ok_at).filter((x): x is string => x != null) ?? [];
+    return times.length ? times.sort()[0] : null;
   }, [data]);
   const failing = useMemo(
     () => data?.status.sources.filter((s) => !s.ok).map((s) => sourceName(t, s)) ?? [],

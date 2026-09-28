@@ -10,7 +10,7 @@ const zh = {
   refresh: "立即采集",
   refreshing: "采集中…",
   refreshFailed: "采集失败",
-  lastCapture: "上次采集",
+  lastCapture: "上次成功采集",
   kpi: {
     tokens: "总 Token",
     cost: "估算花费",
@@ -82,7 +82,7 @@ const en: Strings = {
   refresh: "Capture now",
   refreshing: "Capturing…",
   refreshFailed: "Capture failed",
-  lastCapture: "Last capture",
+  lastCapture: "Last successful capture",
   kpi: {
     tokens: "Total tokens",
     cost: "Estimated cost",
