@@ -1,15 +1,12 @@
-import type { Status, Summary } from "../api/types";
+import type { SourceHealth, Status, Summary } from "../api/types";
 import type { Lang, Strings } from "../i18n/strings";
 import { percent, relativeTime } from "../lib/format";
 import { Card } from "./ui";
 
-const LABELS: Record<string, string> = {
-  "codexbar/claude": "CodexBar · Claude",
-  "codexbar/codex": "CodexBar · Codex",
-  "codexbar/antigravity": "CodexBar · Antigravity",
-  "codex-server/codex": "OpenAI · Codex",
-  "codexbar-quota/": "CodexBar · quota",
-};
+export function sourceName(t: Strings, s: SourceHealth): string {
+  const key = `${s.source}/${s.provider ?? ""}`;
+  return t.sources.names[key] ?? key;
+}
 
 export function SourcesPanel({ status, summary, t, lang, delay }: {
   status: Status;
@@ -18,21 +15,32 @@ export function SourcesPanel({ status, summary, t, lang, delay }: {
   lang: Lang;
   delay: number;
 }) {
-  const live = status.last_ok.filter((s) => s.kind !== "backfill");
   const coverage = summary.providers.codex?.cost_coverage;
   return (
     <Card title={t.sources.title} className="sources" delay={delay}>
       <ul className="source-list">
-        {live.map((s) => {
-          const key = `${s.source}/${s.provider ?? ""}`;
-          return (
-            <li key={key}>
-              <span className="ok-dot" />
-              <span className="source-name">{LABELS[key] ?? key}</span>
-              <span className="source-time">{relativeTime(s.at, lang)}</span>
-            </li>
-          );
-        })}
+        {status.sources.map((s) => (
+          <li key={`${s.source}/${s.provider ?? ""}`} className={s.ok ? "" : "failing"}>
+            <div className="source-row">
+              <span className="status-dot" />
+              <span className="source-name">{sourceName(t, s)}</span>
+              <span className="source-time">
+                {s.ok
+                  ? relativeTime(s.last_at, lang)
+                  : `${t.sources.failed} · ${relativeTime(s.last_at, lang)}`}
+              </span>
+            </div>
+            {!s.ok && (
+              <div className="source-error">
+                {s.error?.split("\n")[0]}
+                <span>
+                  {" · "}
+                  {s.last_ok_at ? t.sources.lastOk(relativeTime(s.last_ok_at, lang)) : t.sources.never}
+                </span>
+              </div>
+            )}
+          </li>
+        ))}
       </ul>
       <div className="source-facts">
         <span>{t.sources.final(status.final_rows)}</span>
@@ -40,16 +48,6 @@ export function SourcesPanel({ status, summary, t, lang, delay }: {
         <span>{t.sources.revisions(status.revisions)}</span>
         {coverage != null && <span>{t.sources.codexCoverage(percent(coverage))}</span>}
       </div>
-      {status.recent_failures.length > 0 && (
-        <div className="source-failures">
-          <div className="source-failures-title">{t.sources.failures}</div>
-          {status.recent_failures.slice(0, 3).map((f) => (
-            <div key={f.started_at + f.source} className="source-failure">
-              <b>{f.source}</b> · {relativeTime(f.started_at, lang)} · {f.error.split("\n")[0]}
-            </div>
-          ))}
-        </div>
-      )}
     </Card>
   );
 }

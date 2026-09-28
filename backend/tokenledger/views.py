@@ -238,17 +238,43 @@ def captures(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def source_health(conn: sqlite3.Connection) -> list[dict]:
+    """Current state of every source, judged by its latest attempt.
+
+    One entry per source and provider. A failure recorded before any provider was known
+    (for example the tool is missing) applies to that source's providers when it is newer
+    than their own last attempt.
+    """
+    rows = conn.execute(
+        "SELECT c.source, s.provider, c.started_at, c.status, c.error FROM captures c "
+        "LEFT JOIN series s ON s.id = c.series_id WHERE c.kind IN ('usage', 'quota') ORDER BY c.id"
+    ).fetchall()
+    entries: dict[tuple[str, str | None], dict] = {}
+    for r in rows:
+        e = entries.setdefault(
+            (r["source"], r["provider"]), {"source": r["source"], "provider": r["provider"], "last_ok_at": None}
+        )
+        ok = r["status"] == "ok"
+        e.update(last_at=r["started_at"], ok=ok, error=None if ok else r["error"])
+        if ok:
+            e["last_ok_at"] = r["started_at"]
+
+    out = []
+    for (source, provider), e in entries.items():
+        providers = [p for (s, p) in entries if s == source and p is not None]
+        if provider is None and providers:
+            continue  # folded into the provider entries below
+        general = entries.get((source, None))
+        if provider is not None and general and not general["ok"] and general["last_at"] > e["last_at"]:
+            e = {**e, "ok": False, "last_at": general["last_at"], "error": general["error"]}
+        out.append(e)
+    return sorted(out, key=lambda e: (e["source"], e["provider"] or ""))
+
+
 def status(conn: sqlite3.Connection, settings: Settings) -> dict:
     counts = conn.execute(
         "SELECT COUNT(*) AS rows, SUM(state='open') AS open, SUM(state='final') AS final FROM ledger"
     ).fetchone()
-    latest = conn.execute(
-        "SELECT c.source, s.provider, c.kind, MAX(c.started_at) AS at FROM captures c "
-        "LEFT JOIN series s ON s.id = c.series_id WHERE c.status='ok' GROUP BY c.source, s.provider, c.kind"
-    ).fetchall()
-    failures = conn.execute(
-        "SELECT source, started_at, error FROM captures WHERE status='error' ORDER BY id DESC LIMIT 5"
-    ).fetchall()
     b = bounds(conn)
     return {
         "machine": {"id": settings.machine.id, "label": settings.machine.label},
@@ -261,8 +287,7 @@ def status(conn: sqlite3.Connection, settings: Settings) -> dict:
         "revisions": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind != 'replaced'").fetchone()[0],
         "replacements": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind = 'replaced'").fetchone()[0],
         "quota_samples": conn.execute("SELECT COUNT(*) FROM quota_samples").fetchone()[0],
-        "last_ok": [dict(r) for r in latest],
-        "recent_failures": [dict(r) for r in failures],
+        "sources": source_health(conn),
     }
 
 

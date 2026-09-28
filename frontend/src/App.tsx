@@ -8,7 +8,7 @@ import { QuotaChart } from "./charts/QuotaChart";
 import { TrendChart, type TrendMode } from "./charts/TrendChart";
 import { Header, type RangeKey } from "./components/Header";
 import { KpiRow } from "./components/KpiRow";
-import { SourcesPanel } from "./components/SourcesPanel";
+import { SourcesPanel, sourceName } from "./components/SourcesPanel";
 import { Card, Segmented } from "./components/ui";
 import { type Lang, STRINGS, providerName } from "./i18n/strings";
 import { shortDate, usd } from "./lib/format";
@@ -92,9 +92,8 @@ export default function App() {
     setCapturing(true);
     setCaptureError(null);
     try {
-      const outcomes = await api.capture();
-      const failed = outcomes.filter((o) => !o.ok);
-      if (failed.length) setCaptureError(failed.map((o) => `${o.source}: ${o.error}`).join("; "));
+      // Per-source failures are recorded by the backend and shown from the status on reload.
+      await api.capture();
       await load();
     } catch (e) {
       setCaptureError(e instanceof Error ? e.message : String(e));
@@ -105,9 +104,13 @@ export default function App() {
 
   const themeKey = `${resolved}-${lang}`;
   const lastCapture = useMemo(() => {
-    const times = data?.status.last_ok.filter((s) => s.kind === "usage").map((s) => s.at) ?? [];
+    const times = data?.status.sources.map((s) => s.last_at) ?? [];
     return times.length ? times.sort().at(-1)! : null;
   }, [data]);
+  const failing = useMemo(
+    () => data?.status.sources.filter((s) => !s.ok).map((s) => sourceName(t, s)) ?? [],
+    [data, t],
+  );
 
   const heatProviders = useMemo(() => {
     const present = data?.daily.providers.map((p) => p.provider) ?? [];
@@ -126,6 +129,7 @@ export default function App() {
         theme={themeChoice}
         onTheme={setTheme}
         lastCapture={lastCapture}
+        failing={failing}
         capturing={capturing}
         captureError={captureError}
         onCapture={capture}

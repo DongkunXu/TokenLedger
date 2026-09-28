@@ -90,3 +90,18 @@ def test_quota_history():
     assert len(samples) == 3
     s = samples[1]
     assert (s.provider, s.account, s.window, s.window_minutes, s.used_percent) == ("claude", "acct", "session", 300, 40.0)
+
+
+def test_codex_binary_uses_first_existing_candidate(tmp_path):
+    from tokenledger.sources.codex_server import find_binary
+
+    old = tmp_path / "old-codex"
+    new = tmp_path / "new-codex"
+    old.write_text("#!/bin/sh\n")
+    old.chmod(0o755)
+    assert find_binary((str(new), str(old))) == str(old)
+    new.write_text("#!/bin/sh\n")
+    new.chmod(0o755)
+    assert find_binary((str(new), str(old))) == str(new)
+    with pytest.raises(SourceError, match="looked at"):
+        find_binary((str(tmp_path / "missing"),))

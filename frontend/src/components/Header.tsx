@@ -14,8 +14,9 @@ interface Props {
   theme: ThemeChoice;
   onTheme: (c: ThemeChoice) => void;
   lastCapture: string | null;
+  failing: string[]; // names of sources whose latest attempt failed
   capturing: boolean;
-  captureError: string | null;
+  captureError: string | null; // the capture request itself failed
   onCapture: () => void;
 }
 
@@ -52,13 +53,23 @@ export function Header(p: Props) {
       </div>
       <div className="topbar-meta">
         {p.captureError ? (
-          <span className="meta-error">{p.t.refreshFailed}: {p.captureError}</span>
+          <span className="meta-error">
+            {p.t.refreshFailed}: {p.captureError}
+          </span>
         ) : (
-          p.lastCapture && (
-            <span>
-              {p.t.lastCapture} · {relativeTime(p.lastCapture, p.lang)}
-            </span>
-          )
+          <>
+            {p.failing.length > 0 && (
+              <span className="meta-error" title={p.failing.join("\n")}>
+                {p.t.sources.failing(p.failing.length)}: {p.failing.join("、")}
+                {p.lastCapture && " · "}
+              </span>
+            )}
+            {p.lastCapture && (
+              <span>
+                {p.t.lastCapture} · {relativeTime(p.lastCapture, p.lang)}
+              </span>
+            )}
+          </>
         )}
       </div>
     </header>

@@ -76,7 +76,7 @@ class QuotaSource(Protocol):
 | id | 读取 | 注意 |
 |---|---|---|
 | `codexbar` | `codexbar cost --provider <p> --days 365 --format json` | 运行前会去掉 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`：CodexBar 只有一份共享缓存，换目录跑 CLI 会改写菜单栏 App 的缓存。时区和 CodexBar 设置不一致时直接报错 |
-| `codex-server` | 启动 ChatGPT.app 自带的 `codex app-server`，发 `initialize` 和只读的 `account/usage/read` | 只有每天的 token 总数；日界线是服务器的（疑似 UTC） |
+| `codex-server` | 启动 ChatGPT.app 自带的 Codex CLI（按已知位置依次查找：`Contents/Resources/codex-cli/bin/codex`，更早版本是 `Contents/Resources/codex`），以 `app-server` 模式发 `initialize` 和只读的 `account/usage/read` | 只有每天的 token 总数；日界线是服务器的（疑似 UTC）。ChatGPT 更新后如果位置又变了，采集会报错并列出查找过的路径，在 `BINARY_CANDIDATES` 里加上新位置即可 |
 | `codexbar-quota` | `~/Library/Application Support/com.steipete.codexbar/history/*.json`，只读 | CodexBar 会压缩这份历史，账本逐条保留见过的样本 |
 
 ## 统一的 token 字段
@@ -160,7 +160,7 @@ class QuotaSource(Protocol):
 
 | 路径 | 内容 |
 |---|---|
-| `GET /api/status` | 机器、时区、账本行数、最近采集、失败 |
+| `GET /api/status` | 机器、时区、账本行数，以及每个数据源最近一次尝试的结果（`sources`：是否成功、时间、错误、上次成功时间） |
 | `GET /api/summary?start&end` | 各平台合计、金额覆盖率、token 构成、峰值日、连续天数 |
 | `GET /api/daily?start&end` | 每天每个平台的 token、金额、质量、统计中标记 |
 | `GET /api/models?start&end` | 各模型合计（本机数据） |

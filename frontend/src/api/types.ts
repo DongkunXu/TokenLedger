@@ -86,6 +86,15 @@ export interface RevisionRow {
   ledger_total: number | null;
 }
 
+export interface SourceHealth {
+  source: string;
+  provider: string | null;
+  ok: boolean;
+  last_at: string; // latest attempt
+  last_ok_at: string | null;
+  error: string | null;
+}
+
 export interface Status {
   machine: { id: string; label: string };
   timezone: string;
@@ -97,8 +106,7 @@ export interface Status {
   revisions: number;
   replacements: number;
   quota_samples: number;
-  last_ok: { source: string; provider: string | null; kind: string; at: string }[];
-  recent_failures: { source: string; started_at: string; error: string }[];
+  sources: SourceHealth[];
   version: string;
   today: string;
 }

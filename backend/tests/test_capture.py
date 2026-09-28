@@ -91,3 +91,28 @@ def test_accept_revision_rebuilds_row_from_archive(conn, settings, tmp_path):
     assert result["new_total"] == 1450
     row = conn.execute("SELECT total, cache_read, origin FROM ledger WHERE day='2026-08-01' AND model='*'").fetchone()
     assert (row["total"], row["cache_read"], row["origin"]) == (1450, 1100, f"manual:revision:{rev['id']}")
+
+
+def test_source_health_reflects_latest_attempt(conn, settings, tmp_path):
+    from tokenledger import views
+
+    class BrokenCodexBar(Broken):
+        id = "codexbar"
+
+    paths = Paths(data=tmp_path)
+    capture.run(conn, paths, settings, usage_sources=[FakeUsage()], quota_sources=[FakeQuota()], clock=clock())
+    health = {(h["source"], h["provider"]): h for h in views.source_health(conn)}
+    assert health[("codexbar", "claude")]["ok"] and health[("codexbar-quota", None)]["ok"]
+
+    # the tool disappears: the failure has no provider but applies to codexbar's providers
+    later = iter(utc(f"2026-09-28T10:00:{s:02d}") for s in range(60))
+    capture.run(conn, paths, settings, usage_sources=[BrokenCodexBar()], quota_sources=[], clock=lambda: next(later))
+    health = {(h["source"], h["provider"]): h for h in views.source_health(conn)}
+    claude = health[("codexbar", "claude")]
+    assert not claude["ok"] and claude["error"] == "tool missing"
+    assert claude["last_ok_at"].startswith("2026-09-27")
+    assert ("codexbar", None) not in health
+
+    # and recovers on the next successful run
+    capture.run(conn, paths, settings, usage_sources=[FakeUsage()], quota_sources=[], clock=lambda: next(later))
+    assert {(h["source"], h["provider"]): h for h in views.source_health(conn)}[("codexbar", "claude")]["ok"]

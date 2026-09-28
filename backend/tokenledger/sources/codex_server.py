@@ -20,21 +20,32 @@ from .. import __version__
 from ..models import DAY_TOTAL, CaptureResult, CostQuality, DayUsage, Scope, SeriesKey
 from .base import SourceContext, SourceError, clean_env, run_tool
 
-DEFAULT_BINARY = "/Applications/ChatGPT.app/Contents/Resources/codex"
+# Where the ChatGPT app has shipped the Codex CLI, newest layout first. The app moves it
+# between releases, so each known location is tried in turn.
+BINARY_CANDIDATES = (
+    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",  # ChatGPT 26.924+ (launcher script)
+    "/Applications/ChatGPT.app/Contents/Resources/codex",  # earlier releases
+)
 TIMEOUT_S = 90.0
+
+
+def find_binary(candidates: tuple[str, ...] = BINARY_CANDIDATES) -> str:
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    raise SourceError("Codex CLI not found in the ChatGPT app; looked at: " + ", ".join(candidates))
 
 
 class CodexServerSource:
     id = "codex-server"
 
-    def __init__(self, binary: str = DEFAULT_BINARY) -> None:
-        self.binary = binary
+    def __init__(self, candidates: tuple[str, ...] = BINARY_CANDIDATES) -> None:
+        self.candidates = candidates
 
     def collect(self, ctx: SourceContext) -> list[CaptureResult]:
-        if not os.access(self.binary, os.X_OK):
-            raise SourceError(f"Codex binary not found at {self.binary}")
-        version = run_tool([self.binary, "--version"], timeout=30).stdout.decode().strip() or "unknown"
-        response = request(self.binary, "account/usage/read", None)
+        binary = find_binary(self.candidates)
+        version = run_tool([binary, "--version"], timeout=30).stdout.decode().strip() or "unknown"
+        response = request(binary, "account/usage/read", None)
         raw = json.dumps(response, indent=1).encode()
         return [parse_usage_response(response, raw=raw, tool_version=version)]
 

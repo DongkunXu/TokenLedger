@@ -35,6 +35,7 @@
   --codex: #2585d8;
   --antigravity: #2fb57f;
   --other: #a0a7b5;
+  --danger: #d6453d;
 
   --heat-0: rgba(15, 23, 42, 0.055);
   --heat-1: #c6ecd6;
@@ -83,6 +84,7 @@
     --claude: #e8896a;
     --codex: #4ea8f5;
     --antigravity: #45cf95;
+    --danger: #ff6b61;
     --heat-0: rgba(255, 255, 255, 0.05);
     --heat-1: #173a2a;
     --heat-2: #1f6b44;
@@ -122,6 +124,7 @@
   --claude: #e8896a;
   --codex: #4ea8f5;
   --antigravity: #45cf95;
+  --danger: #ff6b61;
   --heat-0: rgba(255, 255, 255, 0.05);
   --heat-1: #173a2a;
   --heat-2: #1f6b44;
