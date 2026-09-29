@@ -1,4 +1,4 @@
-import type { CaptureOutcome, CaptureRow, Daily, ModelRow, QuotaPeaks, RevisionRow, Status, Summary } from "./types";
+import type { CaptureOutcome, CaptureRow, Daily, ModelRow, QuotaPeaks, QuotaReading, RevisionRow, Status, Summary } from "./types";
 
 export interface Span {
   start?: string;
@@ -19,6 +19,7 @@ export const api = {
   daily: (s: Span) => get<Daily>("daily", { ...s }),
   models: (s: Span) => get<ModelRow[]>("models", { ...s }),
   quotaPeaks: (s: Span) => get<QuotaPeaks>("quota/peaks", { ...s }),
+  quotaNow: () => get<QuotaReading[]>("quota/now"),
   captures: (limit = 20) => get<CaptureRow[]>("captures", { limit }),
   revisions: (limit = 20) => get<RevisionRow[]>("revisions", { limit }),
   capture: async (): Promise<CaptureOutcome[]> => {

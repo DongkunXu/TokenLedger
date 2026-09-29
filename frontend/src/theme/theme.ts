@@ -16,7 +16,9 @@ function readChoice(): ThemeChoice {
   return "system";
 }
 
-// Theme choice persisted per browser; returns the resolved theme so charts can re-render.
+// Theme choice persisted per browser. The resolved theme is always written to
+// <html data-theme>, so the stylesheet only needs a light and a dark branch
+// (index.html sets it before first paint the same way).
 export function useTheme(): [ThemeChoice, (c: ThemeChoice) => void, Resolved] {
   const [choice, setChoice] = useState<ThemeChoice>(readChoice);
   const [systemDark, setSystemDark] = useState(() => media().matches);
@@ -28,27 +30,16 @@ export function useTheme(): [ThemeChoice, (c: ThemeChoice) => void, Resolved] {
     return () => m.removeEventListener("change", onChange);
   }, []);
 
+  const resolved: Resolved = choice === "system" ? (systemDark ? "dark" : "light") : choice;
+
   useEffect(() => {
-    const root = document.documentElement;
-    if (choice === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", choice);
+    document.documentElement.setAttribute("data-theme", resolved);
     try {
       localStorage.setItem(KEY, choice);
     } catch {
       /* ignore */
     }
-  }, [choice]);
+  }, [choice, resolved]);
 
-  const resolved: Resolved = choice === "system" ? (systemDark ? "dark" : "light") : choice;
   return [choice, setChoice, resolved];
-}
-
-// Current values of the CSS design tokens, for chart options.
-export function cssVar(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-export function providerColor(provider: string): string {
-  const known = ["claude", "codex", "antigravity"];
-  return cssVar(known.includes(provider) ? `--${provider}` : "--other");
 }

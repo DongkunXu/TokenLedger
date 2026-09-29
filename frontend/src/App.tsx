@@ -1,28 +1,42 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Span } from "./api/client";
-import type { Daily, ModelRow, QuotaPeaks, Status, Summary } from "./api/types";
-import { CompositionChart } from "./charts/CompositionChart";
-import { Heatmap } from "./charts/Heatmap";
-import { ModelChart } from "./charts/ModelChart";
-import { QuotaChart } from "./charts/QuotaChart";
-import { TrendChart, type TrendMode } from "./charts/TrendChart";
-import { Header, type RangeKey } from "./components/Header";
-import { KpiRow } from "./components/KpiRow";
-import { SourcesPanel, sourceName } from "./components/SourcesPanel";
-import { Card, Segmented } from "./components/ui";
-import { type Lang, STRINGS, providerName } from "./i18n/strings";
-import { shortDate, usd } from "./lib/format";
-import { type Metric, PROVIDER_ORDER } from "./lib/series";
+import type { Daily, ModelRow, QuotaPeaks, QuotaReading, Status, Summary } from "./api/types";
+import { GlassLayers } from "./components/Panel";
+import { Rail } from "./components/Rail";
+import { TooltipProvider } from "./components/Tooltip";
+import { type RangeKey, TopBar } from "./components/TopBar";
+import { type Lang, STRINGS } from "./i18n/strings";
+import { usePointerLight } from "./lib/motion";
+import { ActivityPanel } from "./panels/ActivityPanel";
+import { DailyTokensPanel } from "./panels/DailyTokensPanel";
+import { ModelsPanel } from "./panels/ModelsPanel";
+import { ProviderCards } from "./panels/ProviderCards";
+import { QuotaPanel } from "./panels/QuotaPanel";
+import { SourcesPanel, sourceName } from "./panels/SourcesPanel";
+import { TotalPanel } from "./panels/TotalPanel";
+import { WeeklyCostPanel } from "./panels/WeeklyCostPanel";
 import { useTheme } from "./theme/theme";
 
 const RANGE_DAYS: Record<RangeKey, number | null> = { d30: 30, d90: 90, d180: 182, y1: 365, all: null };
+
+const SECTIONS = [
+  { id: "s00", index: "00", title: "Total tokens" },
+  { id: "s01", index: "01", title: "Providers" },
+  { id: "s02", index: "02", title: "Quota" },
+  { id: "s03", index: "03", title: "Activity" },
+  { id: "s04", index: "04", title: "Daily tokens" },
+  { id: "s05", index: "05", title: "Weekly cost" },
+  { id: "s06", index: "06", title: "Models" },
+  { id: "s07", index: "07", title: "Sources" },
+];
 
 interface Data {
   status: Status;
   summary: Summary;
   daily: Daily;
   models: ModelRow[];
-  quota: QuotaPeaks;
+  peaks: QuotaPeaks;
+  quota: QuotaReading[];
 }
 
 function spanFor(range: RangeKey, today: string): Span {
@@ -44,7 +58,7 @@ function readLang(): Lang {
 }
 
 export default function App() {
-  const [themeChoice, setTheme, resolved] = useTheme();
+  const [themeChoice, setTheme] = useTheme();
   const [lang, setLangState] = useState<Lang>(readLang);
   const t = STRINGS[lang];
   const [range, setRange] = useState<RangeKey>("all");
@@ -52,14 +66,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
-  const [heatMetric, setHeatMetric] = useState<Metric>("tokens");
-  const [heatProvider, setHeatProvider] = useState("all");
-  const [trendMode, setTrendMode] = useState<TrendMode>("tokens");
-  const [modelBy, setModelBy] = useState<"tokens" | "cost">("tokens");
-  const [quotaWindow, setQuotaWindow] = useState<"weekly" | "session">("weekly");
+  usePointerLight();
 
   const setLang = (l: Lang) => {
     setLangState(l);
+    document.documentElement.lang = l === "zh" ? "zh-CN" : "en";
     try {
       localStorage.setItem("tokenledger.lang", l);
     } catch {
@@ -71,13 +82,14 @@ export default function App() {
     try {
       const status = await api.status();
       const span = spanFor(range, status.today);
-      const [summary, daily, models, quota] = await Promise.all([
+      const [summary, daily, models, peaks, quota] = await Promise.all([
         api.summary(span),
         api.daily(span),
         api.models(span),
         api.quotaPeaks(span),
+        api.quotaNow(),
       ]);
-      setData({ status, summary, daily, models, quota });
+      setData({ status, summary, daily, models, peaks, quota });
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -102,161 +114,68 @@ export default function App() {
     }
   };
 
-  const themeKey = `${resolved}-${lang}`;
   // When all data was last fully up to date: the oldest "last success" across sources.
   // A failing source holds this back, so a failed attempt never looks like a fresh update.
   const lastCapture = useMemo(() => {
     const times = data?.status.sources.map((s) => s.last_ok_at).filter((x): x is string => x != null) ?? [];
     return times.length ? times.sort()[0] : null;
   }, [data]);
-  const failing = useMemo(
-    () => data?.status.sources.filter((s) => !s.ok).map((s) => sourceName(t, s)) ?? [],
-    [data, t],
-  );
-
-  const heatProviders = useMemo(() => {
-    const present = data?.daily.providers.map((p) => p.provider) ?? [];
-    return PROVIDER_ORDER.filter((p) => present.includes(p));
-  }, [data]);
+  const failing = useMemo(() => data?.status.sources.filter((s) => !s.ok).map((s) => sourceName(t, s)) ?? [], [data, t]);
+  const hasQuota = (data?.quota.length ?? 0) > 0;
 
   return (
-    <div className="page">
-      <div className="backdrop" aria-hidden="true" />
-      <Header
-        t={t}
-        lang={lang}
-        onLang={setLang}
-        range={range}
-        onRange={setRange}
-        theme={themeChoice}
-        onTheme={setTheme}
-        lastCapture={lastCapture}
-        failing={failing}
-        capturing={capturing}
-        captureError={captureError}
-        onCapture={capture}
-      />
+    <TooltipProvider>
+      <Rail sections={SECTIONS} version={data?.status.version ?? ""} />
+      <div className="wrap">
+        <TopBar
+          t={t}
+          lang={lang}
+          onLang={setLang}
+          range={range}
+          onRange={setRange}
+          theme={themeChoice}
+          onTheme={setTheme}
+          status={data?.status ?? null}
+          lastCapture={lastCapture}
+          failing={failing}
+          capturing={capturing}
+          captureError={captureError}
+          onCapture={capture}
+        />
 
-      {error && !data && <div className="state">{t.error} · {error}</div>}
-      {!error && !data && <div className="state">{t.loading}</div>}
+        {!data && <StateNote text={error ? `${t.error} · ${error}` : t.loading} />}
+        {data && data.summary.tokens === 0 && <StateNote text={t.empty} />}
 
-      {data && data.summary.tokens === 0 && <div className="state">{t.empty}</div>}
+        {data && data.summary.tokens > 0 && (
+          <>
+            <main className="grid">
+              <TotalPanel summary={data.summary} daily={data.daily} status={data.status} t={t} lang={lang} />
+              <ProviderCards summary={data.summary} daily={data.daily} models={data.models} t={t} lang={lang} />
+              {hasQuota && <QuotaPanel readings={data.quota} peaks={data.peaks} t={t} className="c5" />}
+              <ActivityPanel daily={data.daily} t={t} lang={lang} className={hasQuota ? "c7" : "c12"} />
+              <DailyTokensPanel daily={data.daily} t={t} lang={lang} className="c8" />
+              <WeeklyCostPanel daily={data.daily} t={t} className="c4" />
+              <ModelsPanel models={data.models} t={t} lang={lang} className="c7" />
+              <SourcesPanel status={data.status} summary={data.summary} t={t} lang={lang} className="c5" />
+            </main>
+            <footer className="foot">
+              <span>{t.footer}</span>
+              <span>
+                TOKENLEDGER {data.status.version} · {data.status.machine.label}
+              </span>
+            </footer>
+          </>
+        )}
+      </div>
+    </TooltipProvider>
+  );
+}
 
-      {data && data.summary.tokens > 0 && (
-        <main>
-          <KpiRow summary={data.summary} daily={data.daily} t={t} lang={lang} />
-
-          <Card
-            title={t.heatmap.title}
-            caption={`${shortDate(data.daily.start, lang)} – ${shortDate(data.daily.end, lang)} · ${t.heatmap.activeDays(data.summary.active_days)}`}
-            delay={240}
-            actions={
-              <>
-                <Segmented
-                  label="provider"
-                  value={heatProvider}
-                  onChange={setHeatProvider}
-                  options={[{ value: "all", label: t.heatmap.all }, ...heatProviders.map((p) => ({ value: p, label: providerName(t, p) }))]}
-                />
-                <Segmented
-                  label="metric"
-                  value={heatMetric}
-                  onChange={setHeatMetric}
-                  options={[
-                    { value: "tokens", label: t.heatmap.tokens },
-                    { value: "cost", label: t.heatmap.cost },
-                  ]}
-                />
-              </>
-            }
-          >
-            <Heatmap daily={data.daily} metric={heatMetric} provider={heatProvider} t={t} lang={lang} themeKey={themeKey} />
-          </Card>
-
-          <Card
-            title={t.trend.title}
-            caption={`${shortDate(data.daily.start, lang)} – ${shortDate(data.daily.end, lang)}`}
-            delay={300}
-            actions={
-              <Segmented
-                label="trend"
-                value={trendMode}
-                onChange={setTrendMode}
-                options={[
-                  { value: "tokens", label: t.trend.tokens },
-                  { value: "cost", label: t.trend.cost },
-                  { value: "cumulative", label: t.trend.cumulative },
-                ]}
-              />
-            }
-          >
-            <TrendChart daily={data.daily} mode={trendMode} t={t} lang={lang} themeKey={themeKey} />
-          </Card>
-
-          <div className="grid-2">
-            <Card
-              title={t.models.title}
-              delay={360}
-              actions={
-                <Segmented
-                  label="models"
-                  value={modelBy}
-                  onChange={setModelBy}
-                  options={[
-                    { value: "tokens", label: t.models.byTokens },
-                    { value: "cost", label: t.models.byCost },
-                  ]}
-                />
-              }
-            >
-              <ModelChart models={data.models} by={modelBy} t={t} lang={lang} themeKey={themeKey} />
-            </Card>
-
-            <div className="stack">
-              <Card title={t.composition.title} delay={420}>
-                <CompositionChart summary={data.summary} t={t} lang={lang} themeKey={themeKey} />
-                <div className="per-million">
-                  {PROVIDER_ORDER.filter((p) => (data.summary.providers[p]?.cost_usd ?? 0) > 0).map((p) => {
-                    const s = data.summary.providers[p];
-                    const covered = s.tokens * (s.cost_coverage ?? 0);
-                    return (
-                      <span key={p}>
-                        <i style={{ background: `var(--${p})` }} />
-                        {providerName(t, p)} {usd((s.cost_usd / covered) * 1e6, 2)} <em>{t.composition.perMillion}</em>
-                      </span>
-                    );
-                  })}
-                </div>
-              </Card>
-              <SourcesPanel status={data.status} summary={data.summary} t={t} lang={lang} delay={480} />
-            </div>
-          </div>
-
-          {data.quota.weekly.length + data.quota.session.length > 0 && (
-            <Card
-              title={t.quota.title}
-              delay={540}
-              actions={
-                <Segmented
-                  label="quota"
-                  value={quotaWindow}
-                  onChange={setQuotaWindow}
-                  options={[
-                    { value: "weekly", label: t.quota.weekly },
-                    { value: "session", label: t.quota.session },
-                  ]}
-                />
-              }
-            >
-              <QuotaChart peaks={data.quota} window={quotaWindow} t={t} lang={lang} themeKey={themeKey} />
-            </Card>
-          )}
-
-          <footer className="footer">
-            {t.footer} · {data.status.machine.label} · {data.status.timezone} · v{data.status.version}
-          </footer>
-        </main>
-      )}
+function StateNote({ text }: { text: string }) {
+  return (
+    <div className="state panel glass">
+      <span className="pix">{">"}</span> {text}
+      <GlassLayers />
     </div>
   );
 }

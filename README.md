@@ -35,7 +35,7 @@ scripts/dashboard.sh open
 
 前端改动重新构建后刷新页面即可；后端改动需要 `restart`。
 
-页头的"上次成功采集"是所有数据源最近一次都成功的时间，失败的尝试不会刷新它。某个数据源失败时，页头会一直显示红色提示，"数据来源"卡片里能看到具体错误和上次成功的时间，直到它下次采集成功。
+顶栏的"上次成功采集"是所有数据源最近一次都成功的时间，失败的尝试不会刷新它。某个数据源失败时，顶栏会一直显示红色提示，"数据来源"模块里能看到具体错误和上次成功的时间，直到它下次采集成功。
 
 ### 其他命令
 
@@ -50,6 +50,7 @@ scripts/dashboard.sh open
 | `scripts/install-agent.sh` | 安装定时采集（每天 9:00、21:00；项目在 ~/Documents 下时会被 macOS 拦截，见架构文档） |
 | `scripts/uninstall-agent.sh` | 移除定时采集 |
 | `scripts/clean.sh` | 删除构建产物和依赖，账本数据不动 |
+| `scripts/grade-background.py` | 重新生成看板背景图（用法见文件开头） |
 
 ## 数据从哪里来
 
@@ -60,7 +61,7 @@ scripts/dashboard.sh open
 | CodexBar 额度历史 | 5 小时和每周额度的使用百分比 | 整个账号 |
 | CodexBar 旧缓存（一次性补录） | 已被删除的日志里的请求 | 4 月 25 日起的 Claude，6 月到 8 月的 Codex |
 
-看板上 Codex 的 token 数优先用服务器的账号级数据；金额只来自本机明细，覆盖比例显示在"数据来源"卡片里。
+看板上 Codex 的 token 数优先用服务器的账号级数据；金额只来自本机明细，覆盖比例显示在"数据来源"模块里。
 
 ## 定稿规则
 
@@ -75,7 +76,7 @@ scripts/dashboard.sh open
 
 ```
 backend/    Python 后端：账本、数据源、API、MCP、命令行
-frontend/   React + ECharts 看板
+frontend/   React 看板（图表为手写 SVG）
 scripts/    所有构建、运行、测试脚本（缓存都限制在项目内）
 data/       账本数据库、原始采集归档、旧缓存副本（不进 git）
 docs/       架构说明

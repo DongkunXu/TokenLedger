@@ -61,6 +61,16 @@ export interface QuotaPeaks {
   session: { provider: string; points: [string, number][] }[];
 }
 
+// Latest reading of one limit window (GET /api/quota/now).
+export interface QuotaReading {
+  provider: string;
+  window: string; // "weekly", "session", ...
+  window_minutes: number | null;
+  captured_at: string;
+  used_percent: number;
+  resets_at: string | null;
+}
+
 export interface CaptureRow {
   id: number;
   kind: "usage" | "quota" | "backfill";

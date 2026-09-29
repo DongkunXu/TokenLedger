@@ -22,14 +22,16 @@ TokenLedger/
 │   │   ├── mcp_server.py    MCP 工具
 │   │   └── cli.py           命令行入口
 │   └── tests/
-├── frontend/                Vite + React + TypeScript + ECharts
+├── frontend/                Vite + React + TypeScript，图表全部是手写 SVG
 │   └── src/
 │       ├── api/             接口类型和请求
-│       ├── charts/          各个图表（ECharts 按需引入）
-│       ├── components/      页头、指标卡、数据来源等
+│       ├── panels/          页面上的八个模块（00 总量 … 07 数据来源）
+│       ├── components/      模块外框、导航栏、顶栏、开关、像素格表、提示框
 │       ├── i18n/strings.ts  所有界面文字（中文 / English）
-│       ├── theme/           亮色 / 暗色设计变量
-│       └── lib/             格式化与数据整理
+│       ├── theme/           亮色 / 暗色设计变量，主题切换
+│       ├── styles/          页面骨架（app.css）和模块内部（panels.css）
+│       ├── assets/bg.jpg    背景图（scripts/grade-background.py 生成）
+│       └── lib/             格式化、数据整理、尺寸与动效
 ├── scripts/                 所有构建、测试、运行都走这里的脚本
 ├── data/                    账本数据（git 忽略）
 ├── docs/
@@ -166,10 +168,19 @@ class QuotaSource(Protocol):
 | `GET /api/models?start&end` | 各模型合计（本机数据） |
 | `GET /api/quota?start&end&max_points` | 额度原始样本（抽稀） |
 | `GET /api/quota/peaks?start&end` | 额度峰值 |
+| `GET /api/quota/now` | 每个额度窗口的最新读数和重置时间 |
 | `GET /api/revisions?limit`、`GET /api/captures?limit` | 变更和采集记录 |
 | `POST /api/capture` | 立即采集 |
 
 交互式文档在 `/api/docs`。
+
+## 看板界面
+
+控制台风格：全部方角，大面积只用黑白灰，Claude 用橙、Codex 用蓝，橙色同时是唯一的强调色。标题和数字用 Chakra Petch，编号、代码标签这类小装饰用像素字体 Silkscreen，数据明细用 JetBrains Mono，三款字体都打包在前端里，离线可用。每个模块是一张薄毛玻璃面板，带噪点和跟随鼠标的边缘高光，背后是按调色板调过色的照片，亮色和暗色主题各自在 CSS 里压亮或压暗。
+
+图表没有用图表库，都是 React 直接画的 SVG：每日 Token 堆叠柱、每周花费方块矩阵、热力图、每月 LED 柱、额度分段条。需要填满面板的图表用 `useSize` 读取所在区域的实际尺寸再绘制，所以同一行里高度不同的模块会互相对齐，窗口大小变化时也会重新排布。
+
+`index.html` 带 `Cache-Control: no-cache`，每次重新构建后刷新就能拿到新页面；带哈希文件名的资源文件照常缓存。
 
 ## 看板服务的生命周期
 
@@ -183,7 +194,7 @@ class QuotaSource(Protocol):
 
 ## MCP 工具
 
-`scripts/mcp.sh` 在 stdio 上提供：`ledger_status`、`usage_summary`、`daily_usage`、`model_breakdown`、`quota_history`、`quota_peaks`、`list_revisions`、`list_captures`、`dashboard_status`（只读），`run_capture`、`accept_revision`（会写账本），以及 `dashboard_start`、`dashboard_stop`（开关看板服务）。
+`scripts/mcp.sh` 在 stdio 上提供：`ledger_status`、`usage_summary`、`daily_usage`、`model_breakdown`、`quota_history`、`quota_peaks`、`quota_now`、`list_revisions`、`list_captures`、`dashboard_status`（只读），`run_capture`、`accept_revision`（会写账本），以及 `dashboard_start`、`dashboard_stop`（开关看板服务）。
 
 ## 以后接入 Windows
 

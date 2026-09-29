@@ -1,137 +1,97 @@
-/* Design tokens. Light is the default; dark applies via prefers-color-scheme unless the
-   user picked a theme, and via [data-theme="dark"] when they picked dark. */
+/* Design tokens. Light is the default; <html data-theme="dark"> switches to dark.
+   theme.ts (and the inline script in index.html) always writes the resolved theme there.
+
+   The look: square geometry, black-and-white structure, orange (Claude, accent) and blue
+   (Codex) as the only data colours, thin frosted glass over a graded photo. */
 
 :root {
   color-scheme: light;
-  --bg: #eef1f5;
-  --grid-line: rgba(15, 23, 42, 0.07);
-  --grid-size: 32px;
-  --orb-1: rgba(22, 150, 205, 0.17);
-  --orb-2: rgba(217, 119, 87, 0.12);
-  --orb-3: rgba(38, 178, 150, 0.12);
-  --grain-opacity: 0.035;
 
-  --glass-bg: rgba(255, 255, 255, 0.34);
-  --glass-bg-strong: rgba(255, 255, 255, 0.86);
-  --glass-border: rgba(15, 23, 42, 0.08);
-  --glass-highlight: rgba(255, 255, 255, 0.95);
-  --glass-glow: rgba(26, 140, 210, 0.12);
-  --accent-soft: rgba(26, 140, 210, 0.12);
-  --glass-shadow: 0 1px 1px rgba(15, 23, 42, 0.03), 0 12px 32px -18px rgba(15, 23, 42, 0.22);
+  --hud: "Chakra Petch", -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --pix: "Silkscreen", "JetBrains Mono", monospace;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, "PingFang SC", monospace;
+  --ease: cubic-bezier(0.2, 0.9, 0.2, 1);
+  --rail: 60px;
+
+  --bg: #f3f3f1;
+  --ink: #111;
+  --ink-2: #464644;
+  --ink-3: #747471;
+  --ink-inv: #fbfbfa;
+  --accent: #ec5b12;
+  --accent-ink: #fff;
+  --claude: #ec5b12;
+  --codex: #1591b3;
+  --antigravity: #9a9a97;
+  --other: #b5b5b2;
+  --ok: #1d9a55;
+  --bad: #d8352b;
+
+  --line: rgba(0, 0, 0, 0.09);
+  --line-2: rgba(0, 0, 0, 0.15);
+  --line-3: rgba(0, 0, 0, 0.32);
+  --off: rgba(0, 0, 0, 0.06); /* unlit cells and segments */
+  --hover: rgba(0, 0, 0, 0.04);
+  --h0: rgba(0, 0, 0, 0.07); /* heatmap steps */
+  --h1: #c2c2bf;
+  --h2: #8f8f8c;
+  --h3: #555553;
+  --h4: #111;
+
+  /* glass */
+  --glass: rgba(255, 255, 255, 0.42);
+  --glass-solid: rgba(251, 251, 250, 0.95);
   --blur: 7px;
+  --noise-a: 0.08;
+  --sheen: rgba(255, 255, 255, 0.5);
+  --edge: rgba(255, 255, 255, 1);
+  --edge-base: rgba(255, 255, 255, 0.75);
 
-  --surface: #ffffff;
-  --surface-2: rgba(15, 23, 42, 0.035);
-  --border: rgba(15, 23, 42, 0.075);
-  --border-strong: rgba(15, 23, 42, 0.14);
-  --text: #0e1525;
-  --text-2: #475467;
-  --text-3: #8a94a6;
-  --shadow: 0 12px 32px -14px rgba(15, 23, 42, 0.25);
-  --focus: rgba(26, 140, 210, 0.45);
-  --tooltip-bg: rgba(255, 255, 255, 0.86);
-
-  --claude: #d97757;
-  --codex: #2585d8;
-  --antigravity: #2fb57f;
-  --other: #a0a7b5;
-  --danger: #d6453d;
-
-  --heat-0: rgba(15, 23, 42, 0.055);
-  --heat-1: #c6ecd6;
-  --heat-2: #86d6a7;
-  --heat-3: #3fb577;
-  --heat-4: #1d8551;
-
-  --part-cache-read: #c3cbda;
-  --part-cache-write: #8b98b1;
-  --part-input: #2585d8;
-  --part-output: #d97757;
-
-  --radius: 12px;
-  --radius-sm: 8px;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Segoe UI", Inter, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Segoe UI", Inter, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #07090d;
-    --grid-line: rgba(255, 255, 255, 0.07);
-    --orb-1: rgba(24, 150, 210, 0.26);
-    --orb-2: rgba(217, 119, 87, 0.15);
-    --orb-3: rgba(38, 178, 150, 0.14);
-    --grain-opacity: 0.05;
-    --glass-bg: rgba(18, 23, 30, 0.3);
-    --glass-bg-strong: rgba(16, 19, 27, 0.88);
-    --glass-border: rgba(255, 255, 255, 0.07);
-    --glass-highlight: rgba(255, 255, 255, 0.08);
-    --glass-glow: rgba(64, 170, 235, 0.14);
-    --accent-soft: rgba(64, 170, 235, 0.14);
-    --glass-shadow: 0 1px 1px rgba(0, 0, 0, 0.4), 0 18px 44px -22px rgba(0, 0, 0, 0.8);
-    --surface: #141821;
-    --surface-2: rgba(255, 255, 255, 0.045);
-    --border: rgba(255, 255, 255, 0.07);
-    --border-strong: rgba(255, 255, 255, 0.14);
-    --text: #e9ecf2;
-    --text-2: #a4acbc;
-    --text-3: #6b7486;
-    --shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.7);
-    --tooltip-bg: rgba(20, 24, 33, 0.82);
-    --claude: #e8896a;
-    --codex: #4ea8f5;
-    --antigravity: #45cf95;
-    --danger: #ff6b61;
-    --heat-0: rgba(255, 255, 255, 0.05);
-    --heat-1: #173a2a;
-    --heat-2: #1f6b44;
-    --heat-3: #2fa565;
-    --heat-4: #53dc8e;
-    --part-cache-read: #3a4252;
-    --part-cache-write: #5d6982;
-    --part-input: #4ea8f5;
-    --part-output: #e8896a;
-  }
+  /* backdrop: the photo, toned per theme, then a wash and the registration crosses */
+  --photo: url("../assets/bg.jpg");
+  --photo-filter: saturate(0.62) brightness(1.4) contrast(0.78);
+  --wash: linear-gradient(180deg, rgba(246, 246, 244, 0.42), rgba(246, 246, 244, 0.58));
+  --cross: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cpath d='M24 20v9M19.5 24.5h9' stroke='%23000000' stroke-opacity='.12'/%3E%3C/svg%3E");
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #07090d;
-  --grid-line: rgba(255, 255, 255, 0.07);
-  --orb-1: rgba(24, 150, 210, 0.26);
-  --orb-2: rgba(217, 119, 87, 0.15);
-  --orb-3: rgba(38, 178, 150, 0.14);
-  --grain-opacity: 0.05;
-  --glass-bg: rgba(18, 23, 30, 0.3);
-  --glass-bg-strong: rgba(16, 19, 27, 0.88);
-  --glass-border: rgba(255, 255, 255, 0.07);
-  --glass-highlight: rgba(255, 255, 255, 0.08);
-  --glass-glow: rgba(64, 170, 235, 0.14);
-  --accent-soft: rgba(64, 170, 235, 0.14);
-  --glass-shadow: 0 1px 1px rgba(0, 0, 0, 0.4), 0 18px 44px -22px rgba(0, 0, 0, 0.8);
-  --surface: #141821;
-  --surface-2: rgba(255, 255, 255, 0.045);
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text: #e9ecf2;
-  --text-2: #a4acbc;
-  --text-3: #6b7486;
-  --shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.7);
-  --tooltip-bg: rgba(20, 24, 33, 0.82);
-  --claude: #e8896a;
-  --codex: #4ea8f5;
-  --antigravity: #45cf95;
-  --danger: #ff6b61;
-  --heat-0: rgba(255, 255, 255, 0.05);
-  --heat-1: #173a2a;
-  --heat-2: #1f6b44;
-  --heat-3: #2fa565;
-  --heat-4: #53dc8e;
-  --part-cache-read: #3a4252;
-  --part-cache-write: #5d6982;
-  --part-input: #4ea8f5;
-  --part-output: #e8896a;
+
+  --bg: #050505;
+  --ink: #f1f1f1;
+  --ink-2: #b6b6b6;
+  --ink-3: #878787;
+  --ink-inv: #050505;
+  --accent: #ff6b1f;
+  --accent-ink: #120600;
+  --claude: #ff6b1f;
+  --codex: #36b9d9;
+  --antigravity: #6b6b6b;
+  --other: #4a4a4a;
+  --ok: #3ccf7e;
+  --bad: #ff4d42;
+
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.15);
+  --line-3: rgba(255, 255, 255, 0.3);
+  --off: rgba(255, 255, 255, 0.06);
+  --hover: rgba(255, 255, 255, 0.05);
+  --h0: rgba(255, 255, 255, 0.07);
+  --h1: #353535;
+  --h2: #666;
+  --h3: #a6a6a6;
+  --h4: #f1f1f1;
+
+  --glass: rgba(12, 12, 14, 0.34);
+  --glass-solid: rgba(14, 14, 16, 0.94);
+  --blur: 7px;
+  --noise-a: 0.07;
+  --sheen: rgba(255, 255, 255, 0.06);
+  --edge: rgba(255, 255, 255, 0.85);
+  --edge-base: rgba(255, 255, 255, 0.22);
+
+  --photo-filter: brightness(0.64) saturate(0.95);
+  --wash: linear-gradient(180deg, rgba(5, 5, 5, 0.16), rgba(5, 5, 5, 0.36));
+  --cross: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cpath d='M24 20v9M19.5 24.5h9' stroke='%23ffffff' stroke-opacity='.09'/%3E%3C/svg%3E");
 }
