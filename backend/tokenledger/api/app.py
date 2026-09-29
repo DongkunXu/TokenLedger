@@ -84,6 +84,10 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
     def quota_peaks(start: str | None = None, end: str | None = None, conn=Depends(db)):
         return views.quota_peaks(conn, *span(conn, start, end), settings.tz)
 
+    @app.get("/api/quota/now")
+    def quota_now(conn=Depends(db)):
+        return views.quota_now(conn)
+
     @app.get("/api/revisions")
     def revisions(limit: int = Query(100, ge=1, le=1000), conn=Depends(db)):
         return views.revisions(conn, limit)
@@ -119,6 +123,8 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
             candidate = (static / path).resolve()
             if path and candidate.is_file() and static.resolve() in candidate.parents:
                 return FileResponse(candidate)
-            return FileResponse(static / "index.html")
+            # The page names its hashed assets, so it must be revalidated after every build;
+            # the assets themselves can be cached as long as the browser likes.
+            return FileResponse(static / "index.html", headers={"Cache-Control": "no-cache"})
 
     return app

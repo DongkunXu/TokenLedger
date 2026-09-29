@@ -115,3 +115,39 @@ def test_quota_peaks(conn, settings):
     peaks = views.quota_peaks(conn, "2026-09-01", "2026-09-30", settings.tz)
     assert peaks["weekly"] == [{"provider": "claude", "points": [("2026-09-22T07:00:00Z", 60.0), ("2026-09-29T07:00:00Z", 5.0)]}]
     assert peaks["session"] == [{"provider": "claude", "points": [("2026-09-26", 40.0), ("2026-09-27", 70.0)]}]
+
+
+def test_quota_now_takes_each_windows_latest_reading(conn):
+    from tokenledger.models import QuotaSample
+    from tokenledger.store import repo
+
+    repo.insert_quota_samples(conn, [
+        QuotaSample("claude", "a", "weekly", 10080, "2026-09-28T10:00:00Z", 80, "2026-09-29T07:00:00Z", "t"),
+        QuotaSample("claude", "a", "weekly", 10080, "2026-09-29T10:00:00Z", 14, "2026-10-06T07:00:00Z", "t"),
+        QuotaSample("claude", "a", "session", 300, "2026-09-29T10:00:00Z", 11, "2026-09-29T13:00:00Z", "t"),
+        QuotaSample("codex", "a", "weekly", 10080, "2026-09-29T09:00:00Z", 30, "2026-10-03T21:00:00Z", "t"),
+        QuotaSample("codex", "b", "weekly", 10080, "2026-09-29T08:00:00Z", 45, "2026-10-02T21:00:00Z", "t"),
+    ])
+    now = views.quota_now(conn)
+    assert [(q["provider"], q["window"], q["used_percent"]) for q in now] == [
+        ("claude", "session", 11.0),
+        ("claude", "weekly", 14.0),
+        ("codex", "weekly", 45.0),  # the busier of the two accounts
+    ]
+    assert now[1]["resets_at"] == "2026-10-06T07:00:00Z"
+
+
+def test_page_is_revalidated_after_rebuilds(tmp_path, settings):
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "settings.json").write_text(
+        json.dumps({"timezone": "Europe/London", "grace_days": 3, "machine": {"id": "test-mac", "label": "t", "os": "darwin"}})
+    )
+    static = tmp_path / "dist"
+    (static / "assets").mkdir(parents=True)
+    (static / "index.html").write_text("<!doctype html>")
+    client = TestClient(create_app(Paths(data=data), static_dir=static))
+    for path in ("/", "/some/client/route"):
+        res = client.get(path)
+        assert res.status_code == 200
+        assert res.headers["cache-control"] == "no-cache"

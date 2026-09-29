@@ -215,6 +215,27 @@ def quota_peaks(conn: sqlite3.Connection, start: str, end: str, tz: ZoneInfo) ->
     }
 
 
+def quota_now(conn: sqlite3.Connection) -> list[dict]:
+    """The latest reading of every limit window, one entry per provider and window.
+
+    Each account's newest sample is taken; when a provider has several accounts, the one
+    using more of its limit is reported. ``resets_at`` may already be in the past when no
+    capture has run since the window reset; readers treat that window as unused.
+    """
+    rows = conn.execute(
+        "SELECT q.provider, q.window, q.window_minutes, q.captured_at, q.used_percent, q.resets_at "
+        "FROM quota_samples q JOIN (SELECT provider, account, window, MAX(captured_at) AS at FROM quota_samples "
+        "GROUP BY provider, account, window) l ON l.provider = q.provider AND l.account = q.account "
+        "AND l.window = q.window AND l.at = q.captured_at"
+    ).fetchall()
+    best: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        key = (r["provider"], r["window"])
+        if key not in best or r["used_percent"] > best[key]["used_percent"]:
+            best[key] = dict(r)
+    return [best[k] for k in sorted(best)]
+
+
 def _hour(iso: str) -> str:
     dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc)
     return (dt + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")

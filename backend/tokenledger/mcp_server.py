@@ -102,6 +102,13 @@ def quota_peaks(start: str | None = None, end: str | None = None) -> dict:
 
 
 @mcp.tool(annotations=READ_ONLY)
+def quota_now() -> dict:
+    """The latest used-percent of each provider's limit windows (weekly, 5-hour, ...) and when they reset."""
+    with _db() as (conn, _, _settings):
+        return {"windows": views.quota_now(conn)}
+
+
+@mcp.tool(annotations=READ_ONLY)
 def list_revisions(limit: int = 50) -> dict:
     """Where sources now disagree with final ledger rows (changed / missing / replaced), newest first."""
     with _db() as (conn, _, _s):
