@@ -1,6 +1,6 @@
 # TokenLedger 架构
 
-TokenLedger 是一本只增不减的 AI 用量账本。它定期从 CodexBar 和 Codex 服务器读取每天的 token 数和估算花费，写进本地数据库。一天过了宽限期就定稿，之后来源那边的数据变小或消失，账本都保持原样。
+TokenLedger 是一本只增不减的 AI 用量账本。它定期从 CodexBar、Codex 本机日志和 Codex 服务器读取每天的 token 数和估算花费，写进本地数据库。一天过了宽限期就定稿，之后来源那边的数据变小或消失，账本都保持原样。
 
 ## 目录结构
 
@@ -16,6 +16,7 @@ TokenLedger/
 │   │   ├── rawstore.py      原始输出的 gzip 归档
 │   │   ├── sources/         数据源适配器（统一接口）
 │   │   ├── backfill/        一次性补录：CodexBar 旧缓存
+│   │   ├── pricing.py       按 CodexBar 的价格表和规则计算标价金额
 │   │   ├── corrections.py   人工采用来源的新数值
 │   │   ├── views.py         给 API 和 MCP 用的查询与汇总
 │   │   ├── api/             FastAPI：JSON 接口 + 静态前端
@@ -42,6 +43,7 @@ TokenLedger/
 
 ```
 CodexBar CLI ─────┐
+Codex 本机日志 ───┤
 Codex 服务器 ─────┼─> sources/*  ─> CaptureResult ─> ledger.apply_capture() ─> SQLite ─> views ─> API / MCP ─> 前端
 CodexBar 额度历史 ─┘                     │
                                         └─> data/raw/ 原始输出归档
@@ -68,7 +70,7 @@ class QuotaSource(Protocol):
 
 | 字段 | 例子 |
 |---|---|
-| source | `codexbar`、`codex-server`、以后的 `claude-logs` |
+| source | `codexbar`、`codex-logs`、`codex-server`、以后的 `claude-logs` |
 | provider | `claude`、`codex`、`antigravity` |
 | machine | 这台 Mac 的 id；账号级数据为 `account` |
 | scope | `machine`（本机日志）或 `account`（整个账号） |
@@ -77,15 +79,27 @@ class QuotaSource(Protocol):
 
 | id | 读取 | 注意 |
 |---|---|---|
-| `codexbar` | `codexbar cost --provider <p> --days 365 --format json` | 运行前会去掉 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`：CodexBar 只有一份共享缓存，换目录跑 CLI 会改写菜单栏 App 的缓存。时区和 CodexBar 设置不一致时直接报错 |
+| `codexbar` | `codexbar cost --provider <p> --days 365 --format json`，provider 为 `claude`、`antigravity` | 运行前会去掉 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`：CodexBar 只有一份共享缓存，换目录跑 CLI 会改写菜单栏 App 的缓存。时区和 CodexBar 设置不一致时直接报错。2026-10-04 之前也读 Codex，见下文 |
+| `codex-logs` | `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`，只读；价格表用 CodexBar 缓存的 `~/Library/Caches/CodexBar/model-pricing/models-dev-v1.json` | 每个请求只算一次，规则见下文。归档的原始输出是按天按模型的汇总，`accept` 时从它重建行。价格表不在时采集报错 |
 | `codex-server` | 启动 ChatGPT.app 自带的 Codex CLI（按已知位置依次查找：`Contents/Resources/codex-cli/bin/codex`，更早版本是 `Contents/Resources/codex`），以 `app-server` 模式发 `initialize` 和只读的 `account/usage/read` | 只有每天的 token 总数；日界线是服务器的（疑似 UTC）。ChatGPT 更新后如果位置又变了，采集会报错并列出查找过的路径，在 `BINARY_CANDIDATES` 里加上新位置即可 |
 | `codexbar-quota` | `~/Library/Application Support/com.steipete.codexbar/history/*.json`，只读 | CodexBar 会压缩这份历史，账本逐条保留见过的样本 |
+
+## Codex 本机日志（codex-logs）
+
+Codex 的本机数据在 2026-10-04 之前由 CodexBar 提供。CodexBar 会把分叉对话继承的累计 token 当成分叉当天的新用量：分叉出来的日志文件里，第一个 `token_count` 事件的累计值就带着原对话的全部用量（10 月 4 日 CodexBar 报 5.42 亿，日志里实际 6760 万，服务器 1330 万且还在补）。9 月 14 日的高估也是同一个原因。现在由 `sources/codex_logs.py` 自己读日志：
+
+- 新版 Codex 每次请求写一条 `token_usage_record`，带唯一的 `response_id`。文件里有这种记录就只用它们，所有文件之间按 `response_id` 去重，复制到别的文件里的历史不会重复计算
+- 没有这种记录的旧文件用 `token_count` 事件：相邻两次累计值之差就是一次请求的用量；文件里的第一个事件只算它自己的 `last_token_usage`，所以继承来的累计值不会算进去。这类事件按"时间 + 累计值"在文件之间去重
+- 每个请求按时间戳归到账本时区的日期，按模型逐个计价后再按天按模型汇总；`total` 按 输入 + 输出 计算，和 CodexBar 口径相同
+- 新格式的记录还包括上下文压缩等请求，所以比 CodexBar 的数略多（每天 1% 到 3%），和服务器对得更紧
+
+CodexBar 的 Codex 序列从此不再采集，账本保留它的历史（迁移 2 把它剩下的 open 行定稿）。看板按天选数据：日志里有这一天就用 `codex-logs`，日志已经不在的日子用 CodexBar 当时的记录（`views.MACHINE_SOURCE_ORDER`）。
 
 ## 统一的 token 字段
 
 两家的"输入"口径不同，入库前统一换算：
 
-| 字段 | Claude（CodexBar） | Codex（CodexBar） |
+| 字段 | Claude（CodexBar） | Codex（本机日志，以前是 CodexBar） |
 |---|---|---|
 | `input_uncached` | inputTokens | inputTokens − cacheReadTokens |
 | `cache_read` | cacheReadTokens | cacheReadTokens |
@@ -94,7 +108,7 @@ class QuotaSource(Protocol):
 | `reasoning` | 空 | reasoningTokens（已含在 output 里，只做展示） |
 | `total` | 四项之和 | inputTokens + outputTokens |
 
-每天有一行 `model = "*"` 的全模型合计（带分项），外加每个模型一行（只有合计和金额）。Codex 服务器只给 `total`。
+每天有一行 `model = "*"` 的全模型合计（带分项），外加每个模型一行（CodexBar 的模型行只有合计和金额，`codex-logs` 的模型行带全部分项）。Codex 服务器只给 `total`。
 
 ## 数据库
 
@@ -132,12 +146,14 @@ class QuotaSource(Protocol):
 
 | 质量 | 含义 |
 |---|---|
-| `list_price` | CodexBar 按 API 标价算出（包括旧缓存里 CodexBar 当时存下的金额） |
-| `recomputed` | 补录时按 CodexBar 的价格规则重算（`backfill/pricing.py`） |
+| `list_price` | 按 API 标价算出：CodexBar 算的（包括旧缓存里当时存下的金额），或 `codex-logs` 按 CodexBar 的价格表和规则逐个请求算的 |
+| `recomputed` | 补录时按 CodexBar 的价格规则重算 |
 | `unpriced` | 有 token，模型没有价格（例如 codex-auto-review） |
 | `none` | 来源不提供金额（Codex 服务器） |
 
 没有依据的金额一律留空，不做推测。
+
+价格规则在 `pricing.py`。Codex 的长上下文规则：一次请求的输入超过门槛，整次请求按 `context_over_200k` 的价格算。门槛 gpt-5 系列是 272K，之后的模型是 200K，这是从 CodexBar 的结果反推出来的，按它计算，2026-09-13 到 10-03 每天每个模型的金额都和 CodexBar 一致（分叉高估的 9/14 除外）。
 
 ## 旧缓存补录
 
@@ -153,7 +169,8 @@ class QuotaSource(Protocol):
 ## 看板取数规则（views.py）
 
 - Claude：各台机器本机数据相加
-- Codex：有账号级数据的日子用账号级 token 数，其余用本机数据；金额只来自本机数据，`cost_tokens` 标明金额覆盖了多少 token
+- Codex：有账号级数据的日子用账号级 token 数，其余用本机数据。服务器的数据要晚半天到一天才完整，所以还在统计中的日子取两者中较大的那个；定稿的日子只用账号级数据，因为服务器的日界线是 UTC，和本机数据混用会把午夜前后的用量算两次。金额只来自本机数据，`cost_tokens` 标明金额覆盖了多少 token
+- 同一台机器、同一平台有多个本机来源时，每天取 `MACHINE_SOURCE_ORDER` 里排在前面且有这一天的来源；不再采集的来源（`RETIRED_SOURCES`）不出现在数据来源健康列表里
 - 额度峰值：每周窗口按重置时间分组取最高值，全程 0% 的窗口不计（Codex 每周窗口是滚动的，空闲时每个样本都报"7 天后重置"）；5 小时窗口按本地日期取当天最高
 
 ## HTTP 接口

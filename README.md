@@ -1,6 +1,6 @@
 # TokenLedger
 
-一本只增不减的 AI 用量账本。它每天从 CodexBar 和 OpenAI 服务器读取 Claude、Codex、Antigravity 的 token 数和按 API 标价估算的花费，存进本地数据库。每一天过了 3 天就定稿，之后日志被清理、CodexBar 改了算法，账本里的历史都保持原样。
+一本只增不减的 AI 用量账本。它每天从 CodexBar、Codex 本机日志和 OpenAI 服务器读取 Claude、Codex、Antigravity 的 token 数和按 API 标价估算的花费，存进本地数据库。每一天过了 3 天就定稿，之后日志被清理、CodexBar 改了算法，账本里的历史都保持原样。
 
 配套一个本地网页看板，以及一个给 Claude 用的 MCP 接口。
 
@@ -41,7 +41,7 @@ scripts/dashboard.sh open
 
 | 命令 | 作用 |
 |---|---|
-| `scripts/tokenledger.sh capture` | 立即采集一次（CodexBar、Codex 服务器、额度历史） |
+| `scripts/tokenledger.sh capture` | 立即采集一次（CodexBar、Codex 本机日志、Codex 服务器、额度历史） |
 | `scripts/tokenledger.sh status` | 账本概况、最近采集和失败 |
 | `scripts/tokenledger.sh backfill --dry-run` | 预览从 CodexBar 旧缓存补录的结果 |
 | `scripts/tokenledger.sh accept <id>` | 采用某条来源变更的新数值（见下文） |
@@ -56,12 +56,15 @@ scripts/dashboard.sh open
 
 | 来源 | 内容 | 范围 |
 |---|---|---|
-| `codexbar cost` | 每天每个模型的 token 和标价金额 | 这台 Mac 的本地日志 |
+| `codexbar cost` | Claude 每天每个模型的 token 和标价金额 | 这台 Mac 的本地日志 |
+| Codex 本机日志（`~/.codex/sessions`） | Codex 每天每个模型的 token 和标价金额，逐个请求去重 | 这台 Mac |
 | Codex 服务器（`codex app-server` 的 `account/usage/read`） | 每天的 token 总数 | 整个账号、所有设备 |
 | CodexBar 额度历史 | 5 小时和每周额度的使用百分比 | 整个账号 |
 | CodexBar 旧缓存（一次性补录） | 已被删除的日志里的请求 | 4 月 25 日起的 Claude，6 月到 8 月的 Codex |
 
-看板上 Codex 的 token 数优先用服务器的账号级数据；金额只来自本机明细，覆盖比例显示在"数据来源"模块里。
+看板上 Codex 的 token 数优先用服务器的账号级数据；服务器的数据要晚半天到一天才完整，所以还在统计中的日子取服务器和本机里较大的那个。金额只来自本机明细，覆盖比例显示在"数据来源"模块里。
+
+Codex 的本机数据在 2026-10-04 之前来自 CodexBar。CodexBar 会把分叉对话从原对话继承来的累计 token 当成当天的新用量（10 月 4 日一天多算了约 4.7 亿），现在改由 TokenLedger 自己读日志，每个请求只算一次。日志已经不在的日子仍沿用 CodexBar 当时的记录。
 
 ## 定稿规则
 

@@ -89,6 +89,20 @@ function matrixLayout(weekCount: number, maxWeek: number, { width, height }: { w
   return { width, height, pitch, cell: pitch - (pitch >= 10 ? 2 : 1), rows, unit };
 }
 
+// Lit blocks per provider for one week: the week's total decides how many, and the
+// largest remainders decide whose, so small shares never make blocks disappear.
+function blocks(values: number[], unit: number): number[] {
+  const exact = values.map((v) => v / unit);
+  const counts = exact.map(Math.floor);
+  let left = Math.round(sum(values) / unit) - sum(counts);
+  const byRemainder = exact.map((x, k) => [x - Math.floor(x), k]).sort((a, b) => b[0] - a[0]);
+  for (const [, k] of byRemainder) {
+    if (left-- <= 0) break;
+    counts[k] += 1;
+  }
+  return counts;
+}
+
 function Matrix({ weeks, totals, providers, layout, t }: { weeks: Week[]; totals: number[]; providers: string[]; layout: Layout; t: Strings }) {
   const tip = useTooltip();
   const { width: W, height: H, pitch, cell, rows, unit } = layout;
@@ -99,10 +113,7 @@ function Matrix({ weeks, totals, providers, layout, t }: { weeks: Week[]; totals
   return (
     <svg viewBox={`0 ${-HEADROOM} ${W} ${H}`} role="img" aria-label="weekly cost" onMouseLeave={tip.hide}>
       {weeks.map((w, i) => {
-        const colors: string[] = [];
-        w.v.forEach((v, k) => {
-          for (let j = 0; j < Math.round(v / unit); j++) colors.push(`var(--${providers[k]}, var(--other))`);
-        });
+        const colors = blocks(w.v, unit).flatMap((n, k) => Array<string>(n).fill(`var(--${providers[k]}, var(--other))`));
         const month = w.start.slice(0, 7);
         const label = month !== lastMonth && Number(w.start.slice(8)) <= 7;
         if (label) lastMonth = month;

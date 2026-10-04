@@ -14,7 +14,7 @@ class Scope(StrEnum):
 
 
 class CostQuality(StrEnum):
-    LIST_PRICE = "list_price"  # computed by CodexBar at API list prices
+    LIST_PRICE = "list_price"  # at API list prices, by CodexBar or by a source using its rules
     RECOMPUTED = "recomputed"  # recomputed by TokenLedger with CodexBar's pricing rules
     UNPRICED = "unpriced"  # tokens known, model has no price
     NONE = "none"  # the source reports no cost at all

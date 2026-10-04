@@ -38,6 +38,8 @@
 ## 已知的坑
 
 - **不要**用改过的 `CODEX_HOME` 或 `CLAUDE_CONFIG_DIR` 去跑 `codexbar`。它会改写真实的缓存 `~/Library/Caches/CodexBar`，而且不认 `HOME` 覆盖。2026-09-27 实际发生过一次，App 大约 5 分钟后自己重建，数据没有丢。
-- CodexBar 的 9/14 数据被高估：服务器是 28.1M，CodexBar 是 66.9M。原因疑似 9/13 重建的对话文件干扰了它的分叉计算。
+- CodexBar 的 9/14 数据被高估：服务器是 28.1M，CodexBar 是 66.9M。2026-10-04 查明原因：CodexBar 把分叉对话继承的累计 token 当成分叉当天的新用量。10/4 同样，CodexBar 报 541.6M，逐请求计算是 67.6M。之后 Codex 改由 `codex-logs` 直接读日志（见 docs/ARCHITECTURE.md）
+- Codex 日志里新版的 `token_usage_record`（每个响应一条，带 `response_id`）和 `token_count` 基本一一对应，另外还记录了上下文压缩等请求。逐请求合计和服务器对得更紧，例如 9/20 都是 51.4M
+- CodexBar 的 Codex 长上下文门槛：gpt-5 系列 272K，gpt-6 系列 200K。用这个规则，9/13 到 10/3 每天每个模型的金额都能复现到分
 - 服务器按天统计的日界线和 CodexBar 的伦敦时区不一样，逐日对比会出现相邻两天的数字对调。
 - CodexBar CLI 只有 macOS 和 Linux 版本，没有 Windows 版。

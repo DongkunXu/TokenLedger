@@ -25,7 +25,8 @@ mcp = MCPServer(
         "(Claude, Codex, Antigravity). Days are YYYY-MM-DD in the ledger timezone. A day stays "
         "'open' for 3 days, then becomes final and never changes on its own; later disagreements "
         "from sources are listed as revisions. Codex 'account' figures come from OpenAI's servers "
-        "(all devices, tokens only); 'machine' figures come from this Mac's logs via CodexBar."
+        "(all devices, tokens only, arriving up to a day late); 'machine' figures come from this "
+        "Mac's logs (Claude via CodexBar, Codex read directly)."
     ),
 )
 

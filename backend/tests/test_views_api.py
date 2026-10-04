@@ -60,6 +60,45 @@ def test_models_excludes_account_rows(conn, settings):
     ]
 
 
+def test_machine_days_come_from_the_preferred_source(conn, settings):
+    codexbar = SeriesKey("codexbar", "codex", "test-mac", Scope.MACHINE)
+    logs = SeriesKey("codex-logs", "codex", "test-mac", Scope.MACHINE)
+    for series, rows in (
+        (codexbar, [DayUsage(day="2026-09-25", model="*", total=20, cost_micros=200_000, cost_quality=LP),
+                    DayUsage(day="2026-09-25", model="gpt-a", total=20, cost_micros=200_000, cost_quality=LP),
+                    DayUsage(day="2026-09-26", model="*", total=900, cost_micros=9_000_000, cost_quality=LP),
+                    DayUsage(day="2026-09-26", model="gpt-a", total=900, cost_micros=9_000_000, cost_quality=LP)]),
+        (logs, [DayUsage(day="2026-09-26", model="*", total=30, cost_micros=300_000, cost_quality=LP),
+                DayUsage(day="2026-09-26", model="gpt-a", total=30, cost_micros=300_000, cost_quality=LP)]),
+    ):
+        result = make_capture(rows)
+        result.series = series
+        run_capture(conn, settings, result, "2026-09-27T10:00:00")
+
+    codex = views.daily(conn, "2026-09-25", "2026-09-26")["providers"][0]["values"]
+    assert [v["machine_tokens"] for v in codex] == [20, 30]  # codexbar only where the logs lack the day
+    assert [v["cost_usd"] for v in codex] == [0.2, 0.3]
+    assert views.models(conn, "2026-09-01", "2026-09-30") == [
+        {"provider": "codex", "model": "gpt-a", "tokens": 50, "cost_usd": 0.5, "days": 2}
+    ]
+
+
+def test_open_days_take_the_larger_of_account_and_machine(conn, settings):
+    local = SeriesKey("codex-logs", "codex", "test-mac", Scope.MACHINE)
+    acct = SeriesKey("codex-server", "codex", "account", Scope.ACCOUNT)
+    for series, rows in (
+        (local, [DayUsage(day="2026-09-20", model="*", total=60, cost_micros=0, cost_quality=LP),
+                 DayUsage(day="2026-09-27", model="*", total=60, cost_micros=0, cost_quality=LP)]),
+        (acct, [DayUsage(day="2026-09-20", model="*", total=50), DayUsage(day="2026-09-27", model="*", total=10)]),
+    ):
+        result = make_capture(rows)
+        result.series = series
+        run_capture(conn, settings, result, "2026-09-27T10:00:00")
+    final, *_, today = views.daily(conn, "2026-09-20", "2026-09-27")["providers"][0]["values"]
+    assert (final["tokens"], final["basis"]) == (50, "account")  # settled: the account's own day
+    assert (today["tokens"], today["basis"]) == (60, "machine")  # the account has not caught up yet
+
+
 def test_api_endpoints(tmp_path, settings, monkeypatch):
     data = tmp_path / "data"
     data.mkdir()

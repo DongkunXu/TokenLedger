@@ -18,6 +18,7 @@ from . import ledger, rawstore
 from .config import Paths, Settings
 from .models import DayUsage
 from .sources import SourceContext
+from .sources.codex_logs import parse_logs_export
 from .sources.codex_server import parse_usage_response
 from .sources.codexbar import parse_cost_export
 from .store import repo
@@ -28,6 +29,8 @@ def _rows_from_capture(paths: Paths, settings: Settings, capture: sqlite3.Row, p
     if capture["source"] == "codexbar":
         result = parse_cost_export(raw, provider=provider, ctx=SourceContext(settings, now), tool_version="archived")
         return result.rows if result else []
+    if capture["source"] == "codex-logs":
+        return parse_logs_export(raw, ctx=SourceContext(settings, now)).rows
     if capture["source"] == "codex-server":
         return parse_usage_response(json.loads(raw), raw=raw, tool_version="archived").rows
     raise ValueError(f"no parser for source {capture['source']!r}")

@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..models import DAY_TOTAL, CostQuality, DayUsage
-from .pricing import Catalog, claude_request_cost_usd, codex_request_cost_usd
+from ..pricing import Catalog, claude_request_cost_usd, codex_request_cost_usd
 
 CLAUDE_CACHES = ("claude-v5", "claude-v4", "claude-v2")  # newest first
 CLAUDE_CURRENT = "claude-v6"

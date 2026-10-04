@@ -97,6 +97,13 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (provider, account, window, captured_at)
     );
     """,
+    # 2: Codex moved from CodexBar to the codex-logs source (2026-10-04). CodexBar's Codex
+    # series is no longer captured, so its open days are frozen as they stand; the views
+    # read those days from codex-logs.
+    """
+    UPDATE ledger SET state = 'final', finalized_at = strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')
+    WHERE state = 'open' AND series_id IN (SELECT id FROM series WHERE source = 'codexbar' AND provider = 'codex');
+    """,
 ]
 
 

@@ -3,10 +3,19 @@
 Combination rules for the per-provider daily view ("best" figures):
 
 * tokens: the account-scope series when it has the day (the provider's own
-  count across all devices), otherwise the sum of machine-scope series
+  count across all devices), otherwise the sum of machine-scope series. While
+  a day is still open the larger of the two is used: the provider's count
+  arrives half a day to a day late, and until then this machine's logs are the
+  better lower bound. Final days keep the account figure, whose day boundary
+  (UTC for Codex) differs from the ledger's, so mixing the two there would
+  count usage near midnight twice.
 * cost: always the sum of machine-scope series; account series carry no cost
 * ``cost_tokens``: how many of the day's tokens the cost figure covers, so the
   UI can show when a cost is partial
+* machine figures: when several sources read the same provider on the same
+  machine, each day comes from the first source in ``MACHINE_SOURCE_ORDER`` that
+  has it. Codex moved from CodexBar to codex-logs; CodexBar's rows remain as the
+  record of days whose logs are gone.
 """
 
 from __future__ import annotations
@@ -20,14 +29,36 @@ from .config import Settings
 from .models import DAY_TOTAL
 
 PART_FIELDS = ("input_uncached", "cache_read", "cache_write", "output", "reasoning")
+MACHINE_SOURCE_ORDER = ("codex-logs", "codexbar")
+RETIRED_SOURCES = {("codexbar", "codex")}  # no longer captured; kept out of the health list
 
 
 def _ledger_totals(conn: sqlite3.Connection, start: str, end: str) -> list[sqlite3.Row]:
-    return conn.execute(
+    """Day-total rows of every account series and of the preferred machine series."""
+    rows = conn.execute(
         "SELECT s.provider, s.scope, s.source, s.machine, l.* FROM ledger l JOIN series s ON s.id = l.series_id "
         "WHERE l.model = ? AND l.day BETWEEN ? AND ? ORDER BY l.day",
         (DAY_TOTAL, start, end),
     ).fetchall()
+    chosen = _preferred(rows)
+    return [r for r in rows if r["scope"] == "account" or (r["series_id"], r["day"]) in chosen]
+
+
+def _preferred(totals: list[sqlite3.Row]) -> set[tuple[int, str]]:
+    """(series, day) pairs to read machine figures from: per provider, machine and day,
+    the first source in MACHINE_SOURCE_ORDER that has the day."""
+
+    def rank(source: str) -> int:
+        return MACHINE_SOURCE_ORDER.index(source) if source in MACHINE_SOURCE_ORDER else len(MACHINE_SOURCE_ORDER)
+
+    best: dict[tuple[str, str, str], sqlite3.Row] = {}
+    for r in totals:
+        if r["scope"] != "machine":
+            continue
+        key = (r["provider"], r["machine"], r["day"])
+        if key not in best or rank(r["source"]) < rank(best[key]["source"]):
+            best[key] = r
+    return {(r["series_id"], r["day"]) for r in best.values()}
 
 
 def bounds(conn: sqlite3.Connection) -> tuple[str, str] | None:
@@ -75,11 +106,13 @@ def daily(conn: sqlite3.Connection, start: str, end: str) -> dict:
             if c is None:
                 rows.append(None)
                 continue
-            best = c["account_tokens"] if c["account_tokens"] is not None else c["machine_tokens"]
+            account = c["account_tokens"] is not None and (
+                "open" not in c["states"] or not c["machine_seen"] or c["account_tokens"] >= c["machine_tokens"]
+            )
             rows.append(
                 {
-                    "tokens": best,
-                    "basis": "account" if c["account_tokens"] is not None else "machine",
+                    "tokens": c["account_tokens"] if account else c["machine_tokens"],
+                    "basis": "account" if account else "machine",
                     "machine_tokens": c["machine_tokens"] if c["machine_seen"] else None,
                     "account_tokens": c["account_tokens"],
                     "cost_usd": c["cost_micros"] / 1e6 if c["cost_tokens"] else None,
@@ -134,23 +167,33 @@ def summary(conn: sqlite3.Connection, start: str, end: str) -> dict:
 
 
 def models(conn: sqlite3.Connection, start: str, end: str) -> list[dict]:
+    """Per provider and model, from the preferred machine series of each day."""
     rows = conn.execute(
-        "SELECT s.provider, l.model, SUM(l.total) AS tokens, SUM(l.cost_micros) AS cost_micros, "
-        "COUNT(DISTINCT l.day) AS days FROM ledger l JOIN series s ON s.id = l.series_id "
-        "WHERE s.scope = 'machine' AND l.model != ? AND l.day BETWEEN ? AND ? "
-        "GROUP BY s.provider, l.model ORDER BY tokens DESC",
-        (DAY_TOTAL, start, end),
+        "SELECT s.provider, s.scope, s.source, s.machine, l.series_id, l.day, l.model, l.total, l.cost_micros "
+        "FROM ledger l JOIN series s ON s.id = l.series_id WHERE s.scope = 'machine' AND l.day BETWEEN ? AND ?",
+        (start, end),
     ).fetchall()
-    return [
+    chosen = _preferred([r for r in rows if r["model"] == DAY_TOTAL])
+    agg: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        if r["model"] == DAY_TOTAL or (r["series_id"], r["day"]) not in chosen:
+            continue
+        a = agg.setdefault((r["provider"], r["model"]), {"tokens": 0, "cost_micros": None, "days": set()})
+        a["tokens"] += r["total"]
+        a["days"].add(r["day"])
+        if r["cost_micros"] is not None:
+            a["cost_micros"] = (a["cost_micros"] or 0) + r["cost_micros"]
+    out = [
         {
-            "provider": r["provider"],
-            "model": r["model"],
-            "tokens": r["tokens"],
-            "cost_usd": r["cost_micros"] / 1e6 if r["cost_micros"] is not None else None,
-            "days": r["days"],
+            "provider": provider,
+            "model": model,
+            "tokens": a["tokens"],
+            "cost_usd": a["cost_micros"] / 1e6 if a["cost_micros"] is not None else None,
+            "days": len(a["days"]),
         }
-        for r in rows
+        for (provider, model), a in agg.items()
     ]
+    return sorted(out, key=lambda m: m["tokens"], reverse=True)
 
 
 def quota(conn: sqlite3.Connection, start: str, end: str, max_points: int = 600) -> list[dict]:
@@ -272,6 +315,8 @@ def source_health(conn: sqlite3.Connection) -> list[dict]:
     ).fetchall()
     entries: dict[tuple[str, str | None], dict] = {}
     for r in rows:
+        if (r["source"], r["provider"]) in RETIRED_SOURCES:
+            continue
         e = entries.setdefault(
             (r["source"], r["provider"]), {"source": r["source"], "provider": r["provider"], "last_ok_at": None}
         )

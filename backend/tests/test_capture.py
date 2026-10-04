@@ -5,7 +5,7 @@ from itertools import count
 
 from tokenledger import capture
 from tokenledger.config import Paths
-from tokenledger.models import QuotaCapture
+from tokenledger.models import QuotaCapture, Scope, SeriesKey
 from tokenledger.sources import SourceError
 from tokenledger.sources.codexbar import parse_cost_export
 from tokenledger.sources.codexbar_quota import parse_history_file
@@ -116,3 +116,16 @@ def test_source_health_reflects_latest_attempt(conn, settings, tmp_path):
     # and recovers on the next successful run
     capture.run(conn, paths, settings, usage_sources=[FakeUsage()], quota_sources=[], clock=lambda: next(later))
     assert {(h["source"], h["provider"]): h for h in views.source_health(conn)}[("codexbar", "claude")]["ok"]
+
+
+def test_retired_sources_leave_the_health_list(conn, settings, tmp_path):
+    from tokenledger import views
+
+    class OldCodexBar(FakeUsage):
+        def collect(self, ctx):
+            [result] = super().collect(ctx)
+            result.series = SeriesKey("codexbar", "codex", "test-mac", Scope.MACHINE)
+            return [result]
+
+    capture.run(conn, Paths(data=tmp_path), settings, usage_sources=[OldCodexBar()], quota_sources=[], clock=clock())
+    assert ("codexbar", "codex") not in {(h["source"], h["provider"]) for h in views.source_health(conn)}

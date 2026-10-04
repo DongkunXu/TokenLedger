@@ -123,7 +123,7 @@ def _record_failure(conn: sqlite3.Connection, kind: str, source: str, now: datet
 
 
 def _meta(meta: dict) -> dict:
-    keep = {k: meta[k] for k in ("history_days", "coverage") if k in meta}
+    keep = {k: meta[k] for k in ("history_days", "coverage", "files", "requests", "skipped_lines") if k in meta}
     summary = meta.get("summary")
     if isinstance(summary, dict) and "lifetimeTokens" in summary:
         keep["lifetime_tokens"] = summary["lifetimeTokens"]

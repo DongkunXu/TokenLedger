@@ -80,7 +80,7 @@ const zh = {
     fail: "FAIL",
     names: {
       "codexbar/claude": ["CodexBar · Claude", "本机 · 每日每模型"],
-      "codexbar/codex": ["CodexBar · Codex", "本机 · 每日每模型"],
+      "codex-logs/codex": ["Codex 本机日志", "本机 · 每日每模型"],
       "codexbar/antigravity": ["CodexBar · Antigravity", "本机 · 每日每模型"],
       "codex-server/codex": ["OpenAI 服务器 · Codex", "账号 · 每日总数"],
       "codexbar-quota/": ["CodexBar · 额度", "5 小时与每周"],
@@ -168,7 +168,7 @@ const en: Strings = {
     fail: "FAIL",
     names: {
       "codexbar/claude": ["CodexBar · Claude", "this Mac · per model"],
-      "codexbar/codex": ["CodexBar · Codex", "this Mac · per model"],
+      "codex-logs/codex": ["Codex logs", "this Mac · per model"],
       "codexbar/antigravity": ["CodexBar · Antigravity", "this Mac · per model"],
       "codex-server/codex": ["OpenAI server · Codex", "account · daily totals"],
       "codexbar-quota/": ["CodexBar · quota", "5-hour and weekly"],

@@ -105,3 +105,117 @@ def test_codex_binary_uses_first_existing_candidate(tmp_path):
     assert find_binary((str(new), str(old))) == str(new)
     with pytest.raises(SourceError, match="looked at"):
         find_binary((str(tmp_path / "missing"),))
+
+
+# ---- codex-logs ----
+
+from tokenledger.sources.codex_logs import CodexLogsSource, parse_logs_export
+
+CODEX_CATALOG = {
+    "fetchedAt": "2026-10-03T16:00:00Z",
+    "catalog": {"providers": {"openai": {"models": {"gpt-6-x": {"cost": {
+        "input": 2, "cache_read": 0.2, "output": 10,
+        "context_over_200k": {"input": 4, "cache_read": 0.4, "output": 15}}}}}}},
+}
+
+
+def u(inp, cached, out, reasoning=0):
+    return {"input_tokens": inp, "cached_input_tokens": cached, "output_tokens": out,
+            "reasoning_output_tokens": reasoning, "total_tokens": inp + out}
+
+
+def turn(ts, turn_id, model="gpt-6-x"):
+    return {"timestamp": ts, "type": "turn_context", "payload": {"turn_id": turn_id, "model": model}}
+
+
+def count(ts, total, last):
+    return {"timestamp": ts, "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": total, "last_token_usage": last}}}
+
+
+def record(ts, response_id, turn_id, usage):
+    return {"timestamp": ts, "type": "token_usage_record", "payload": {"response_id": response_id, "turn_id": turn_id, "usage": usage}}
+
+
+def write_log(home, name, entries, tail=""):
+    path = home / "sessions/2026/10/04" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(e) + "\n" for e in entries) + tail)
+
+
+@pytest.fixture
+def codex_home(tmp_path):
+    (tmp_path / "catalog.json").write_text(json.dumps(CODEX_CATALOG))
+    return tmp_path
+
+
+def collect(codex_home, ctx):
+    [result] = CodexLogsSource(codex_home / "codex", codex_home / "catalog.json").collect(ctx)
+    return result
+
+
+def test_codex_logs_ignore_totals_inherited_by_a_forked_session(codex_home, ctx):
+    home = codex_home / "codex"
+    # a fork starts with the parent's running total: only each event's own usage counts
+    write_log(home, "rollout-fork.jsonl", [
+        turn("2026-10-04T10:00:00Z", "t1"),
+        count("2026-10-04T10:00:05Z", u(250_000_000, 240_000_000, 1_000_000), u(1000, 800, 10)),
+        count("2026-10-04T10:00:09Z", u(250_002_000, 240_001_600, 1_000_030), u(2000, 1600, 30)),
+        count("2026-10-04T10:00:10Z", u(250_002_000, 240_001_600, 1_000_030), u(2000, 1600, 30)),  # repeated event
+    ], tail='{"timestamp": "2026-10-04T10:01:00Z", "type": "event_msg", "payload": {"type": "token_count", "in')  # still being written
+    result = collect(codex_home, ctx)
+    rows = by_key(result)
+    day = rows[("2026-10-04", DAY_TOTAL)]
+    assert day.total == 1010 + 2030
+    assert (day.input_uncached, day.cache_read, day.output) == (600, 2400, 40)
+    assert rows[("2026-10-04", "gpt-6-x")].total == 3040
+    assert result.series.source == "codex-logs" and result.series.scope == Scope.MACHINE
+    assert result.meta == {"files": 1, "requests": 2, "skipped_lines": 1}
+
+
+def test_codex_logs_prefer_per_response_records_and_count_each_once(codex_home, ctx):
+    home = codex_home / "codex"
+    entries = [
+        turn("2026-10-04T10:00:00Z", "t1", "gpt-6-x"),
+        turn("2026-10-04T10:05:00Z", "t2", "gpt-other"),
+        record("2026-10-04T10:00:05Z", "resp_a", "t1", u(1000, 800, 10)),
+        count("2026-10-04T10:00:06Z", u(1000, 800, 10), u(1000, 800, 10)),  # same request, ignored
+        record("2026-10-04T10:05:05Z", "resp_b", "t2", u(500, 0, 5)),
+    ]
+    write_log(home, "rollout-a.jsonl", entries)
+    write_log(home, "rollout-copy.jsonl", entries[:3])  # history copied into another file
+    rows = by_key(collect(codex_home, ctx))
+    assert rows[("2026-10-04", DAY_TOTAL)].total == 1010 + 505
+    priced = rows[("2026-10-04", "gpt-6-x")]
+    assert priced.cost_micros == round((200 * 2 + 800 * 0.2 + 10 * 10)) and priced.cost_quality == CostQuality.LIST_PRICE
+    unpriced = rows[("2026-10-04", "gpt-other")]
+    assert unpriced.cost_micros is None and unpriced.cost_quality == CostQuality.UNPRICED
+    assert rows[("2026-10-04", DAY_TOTAL)].cost_micros == priced.cost_micros
+
+
+def test_codex_logs_bucket_days_and_price_long_context(codex_home, ctx):
+    home = codex_home / "codex"
+    write_log(home, "rollout-late.jsonl", [
+        turn("2026-10-03T22:00:00Z", "t1"),
+        record("2026-10-03T22:30:00Z", "resp_late", "t1", u(1000, 0, 0)),  # 23:30 BST on the 3rd
+        record("2026-10-03T23:30:00Z", "resp_long", "t1", u(200_001, 0, 0)),  # 00:30 BST on the 4th
+    ])
+    rows = by_key(collect(codex_home, ctx))
+    assert rows[("2026-10-03", DAY_TOTAL)].total == 1000
+    assert rows[("2026-10-04", DAY_TOTAL)].cost_micros == 200_001 * 4
+
+
+def test_codex_logs_without_logs_or_catalog(codex_home, ctx):
+    assert CodexLogsSource(codex_home / "absent", codex_home / "catalog.json").collect(ctx) == []
+    write_log(codex_home / "codex", "rollout.jsonl", [])
+    with pytest.raises(SourceError, match="catalog"):
+        CodexLogsSource(codex_home / "codex", codex_home / "missing.json").collect(ctx)
+
+
+def test_codex_logs_export_must_match_ledger_timezone(codex_home, ctx, settings):
+    home = codex_home / "codex"
+    write_log(home, "rollout.jsonl", [turn("2026-10-04T10:00:00Z", "t1"), record("2026-10-04T10:00:01Z", "r", "t1", u(10, 0, 1))])
+    raw = collect(codex_home, ctx).raw
+    assert parse_logs_export(raw, ctx=ctx).rows  # the archive parses back
+    other = SourceContext(settings=type(settings)("UTC", settings.grace_days, settings.machine), now_utc=ctx.now_utc)
+    with pytest.raises(SourceError, match="bucketed"):
+        parse_logs_export(raw, ctx=other)

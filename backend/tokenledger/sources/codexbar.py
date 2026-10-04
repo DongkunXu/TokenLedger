@@ -3,6 +3,10 @@
 Runs ``codexbar cost --provider <p> --days 365 --format json`` once per provider.
 CodexBar reports Claude input without cache reads and Codex input including
 them; both are normalized here (see ``DayUsage``).
+
+Codex is read by ``codex_logs`` since 2026-10-04: CodexBar counts the history a
+forked session inherits as new usage. The parser keeps handling Codex exports
+so archived captures from before then can still be read.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from ..models import DAY_TOTAL, CaptureResult, CostQuality, DayUsage, Scope, Ser
 from .base import SourceContext, SourceError, run_tool
 
 HISTORY_DAYS = 365  # CodexBar's maximum
-PROVIDERS = ("claude", "codex", "antigravity")
+PROVIDERS = ("claude", "antigravity")
 TIMEOUT_S = 900.0
 DEFAULTS_DOMAIN = "com.steipete.codexbar"
 TIMEZONE_KEY = "tokenCostUsageBucketTimeZone"

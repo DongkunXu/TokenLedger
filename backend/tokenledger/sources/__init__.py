@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from .base import QuotaSource, SourceContext, SourceError, UsageSource
+from .codex_logs import CodexLogsSource
 from .codex_server import CodexServerSource
 from .codexbar import CodexBarCostSource
 from .codexbar_quota import CodexBarQuotaSource
 
 
 def default_usage_sources() -> list[UsageSource]:
-    return [CodexBarCostSource(), CodexServerSource()]
+    return [CodexBarCostSource(), CodexLogsSource(), CodexServerSource()]
 
 
 def default_quota_sources() -> list[QuotaSource]:
@@ -26,6 +27,7 @@ def usage_source_by_id(source_id: str) -> UsageSource:
 __all__ = [
     "CodexBarCostSource",
     "CodexBarQuotaSource",
+    "CodexLogsSource",
     "CodexServerSource",
     "QuotaSource",
     "SourceContext",
