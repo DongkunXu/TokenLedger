@@ -27,12 +27,12 @@ TokenLedger/
 │   └── src/
 │       ├── api/             接口类型和请求
 │       ├── panels/          页面上的八个模块（00 总量 … 07 数据来源）
-│       ├── components/      模块外框、导航栏、顶栏、开关、像素格表、提示框
+│       ├── components/      模块外框、导航栏、顶栏、开关、像素格表、提示框、趣味换算
 │       ├── i18n/strings.ts  所有界面文字（中文 / English）
 │       ├── theme/           亮色 / 暗色设计变量，主题切换
 │       ├── styles/          页面骨架（app.css）和模块内部（panels.css）
 │       ├── assets/bg.jpg    背景图（scripts/grade-background.py 生成）
-│       └── lib/             格式化、数据整理、尺寸与动效
+│       └── lib/             格式化、数据整理、尺寸与动效、趣味换算表（fun.ts）
 ├── scripts/                 所有构建、测试、运行都走这里的脚本
 ├── data/                    账本数据（git 忽略）
 ├── docs/

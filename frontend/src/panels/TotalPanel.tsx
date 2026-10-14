@@ -1,4 +1,5 @@
 import type { Daily, Status, Summary } from "../api/types";
+import { FunLine } from "../components/Fun";
 import { Panel } from "../components/Panel";
 import { type Lang, type Strings, providerName } from "../i18n/strings";
 import { dotDate, tokenParts, tokens, usd } from "../lib/format";
@@ -12,6 +13,8 @@ export function TotalPanel({ summary, daily, status, t, lang }: { summary: Summa
   const providers = PROVIDER_ORDER.filter((p) => (summary.providers[p]?.tokens ?? 0) > 0);
   const share = (p: string) => summary.providers[p].tokens / summary.tokens;
   const perDay = summary.active_days ? summary.tokens / summary.active_days : 0;
+  const todayIndex = daily.days.indexOf(status.today);
+  const todayTokens = todayIndex < 0 ? 0 : sum(daily.providers.map((p) => metricValue(p.values[todayIndex], "tokens")));
 
   return (
     <Panel
@@ -67,6 +70,11 @@ export function TotalPanel({ summary, daily, status, t, lang }: { summary: Summa
           <Readout code="Avg" sub={t.total.avg} note={t.total.avgNote} value={tokens(perDay, lang, 2)} />
         </div>
       </div>
+      <FunLine
+        inputs={{ today: status.today, todayTokens, start: summary.start, rangeTokens: summary.tokens, activeDays: summary.active_days }}
+        t={t}
+        lang={lang}
+      />
       <TodayStrip daily={daily} today={status.today} t={t} lang={lang} />
     </Panel>
   );

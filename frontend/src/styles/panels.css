@@ -178,6 +178,121 @@ svg rect.lit {
   animation: blink 1.6s steps(1) infinite;
 }
 
+/* ---------- equivalents: the rotating line and its dialog ---------- */
+.fun-line {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 36px;
+  padding-right: 16px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.fun-line:hover {
+  background: var(--hover);
+}
+.fun-line:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.fun-line .tag {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding: 0 14px;
+  border-right: 1px solid var(--line);
+  color: var(--accent);
+  font-size: 11px;
+}
+.fun-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: on 0.4s var(--ease) both;
+}
+.fun-line b,
+.fun-dialog li b {
+  color: var(--ink);
+  font-size: 1.08em;
+  font-weight: 500;
+  padding: 0 1px;
+}
+.fun-line .sp {
+  flex: 1;
+}
+.fun-line .hint {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.fun-dialog {
+  width: min(1040px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0 0 18px;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--glass-solid);
+  border: 1px solid var(--line-2);
+}
+.fun-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.fun-dialog .ph .sq {
+  margin-left: 12px;
+}
+.fun-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 36px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.fun-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fun-stat .num {
+  font-size: 30px;
+  line-height: 1;
+}
+.fun-groups {
+  columns: 2 420px;
+  column-gap: 36px;
+  padding: 6px 22px 0;
+}
+.fun-group {
+  break-inside: avoid;
+  padding-top: 14px;
+}
+.fun-group h3 {
+  margin: 0 0 6px;
+  color: var(--accent);
+}
+.fun-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.fun-group li {
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--line-2);
+  color: var(--ink-2);
+}
+.fun-note {
+  margin: 16px 22px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
 /* ---------- 01 provider cards ---------- */
 .cards {
   display: flex;
@@ -803,7 +918,8 @@ svg rect.lit {
     gap: 16px;
   }
   .today .it-date,
-  .today .it-extra {
+  .today .it-extra,
+  .fun-line .hint {
     display: none;
   }
   .readbar,
