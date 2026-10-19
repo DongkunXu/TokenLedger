@@ -1,11 +1,10 @@
 # TokenLedger data source investigation (2026-09-27)
 
-What was found about the data sources before the tool was written, and the raw data saved at the time. The conclusions are built into `backend/`; see `docs/ARCHITECTURE.md`.
+What was found about the data sources before the tool was written. The conclusions are built into `backend/`; see `docs/ARCHITECTURE.md`.
 
-## Contents
+## Raw data
 
-- `snapshots-2026-09-27/codex-server-account-usage.json`: account usage from the Codex server, per day, 2026-02-26 to 2026-09-26, 185 days, 5,232,931,596 tokens in all
-- `snapshots-2026-09-27/codexbar-cost-{claude,codex}.json`: that day's `codexbar cost --days 365 --format json` export (CodexBar 0.60.4)
+The raw exports this was based on are kept locally in `snapshots-2026-09-27/` and are not part of the repository: the Codex server's daily account usage from 2026-02-26 to 2026-09-26 (185 days, 5,232,931,596 tokens) and that day's `codexbar cost --days 365 --format json` export for Claude and Codex (CodexBar 0.60.4).
 
 ## Sources
 

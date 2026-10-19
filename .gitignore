@@ -1,5 +1,7 @@
 # Ledger data belongs to the user and never goes into git
 /data/
+# Raw usage exports saved during the research; they stay on the machine that made them
+/research/snapshots-*/
 
 # Build outputs, caches, environments
 /.build/
