@@ -21,8 +21,8 @@ export interface FunItem {
 }
 
 const WORDS = 0.75; // English words per token
-const MM_PER_CHAR = 3.7; // a 五号 (10.5 pt) character
-const CHARS_PER_PAGE = 1700; // A4, 五号
+const MM_PER_CHAR = 3.7; // a Chinese size-5 (10.5 pt) character
+const CHARS_PER_PAGE = 1700; // A4, size-5 type
 const KEYS_PER_CHAR = 3; // pinyin
 const FINGER_M = 0.02; // finger travel per keystroke
 const HOUR = 60;
@@ -72,7 +72,7 @@ export const FUN_ITEMS: FunItem[] = [
   { id: "speedSec", group: "speed", kind: "rate", value: rate(1 / 60) },
   { id: "keys", group: "speed", kind: "rate", value: rate(KEYS_PER_CHAR / 60) },
   { id: "finger", group: "speed", kind: "kmh", value: rate((KEYS_PER_CHAR * FINGER_M * 60) / 1000) },
-  { id: "bolt", group: "speed", kind: "count", value: rate((KEYS_PER_CHAR * FINGER_M * 60) / 1000 / 44.7) },
+  { id: "mach", group: "speed", kind: "count", value: rate((KEYS_PER_CHAR * FINGER_M * 60) / 1000 / 1_235) },
 
   { id: "rice", group: "odd", kind: "mass", value: (s) => s.tokens * 0.00002 },
   { id: "steps", group: "odd", kind: "length", value: (s) => s.tokens * 0.7 },
