@@ -104,6 +104,21 @@ def test_codex_binary_uses_first_existing_candidate(tmp_path):
     new.chmod(0o755)
     assert find_binary((str(new), str(old))) == str(new)
     with pytest.raises(SourceError, match="looked at"):
+        find_binary((str(tmp_path / "missing"),), fallback=None)
+
+
+def test_codex_binary_falls_back_to_path(tmp_path, monkeypatch):
+    from tokenledger.sources.codex_server import find_binary
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    codex = bin_dir / "codex"
+    codex.write_text("#!/bin/sh\n")
+    codex.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    assert find_binary((str(tmp_path / "missing"),)) == str(codex)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    with pytest.raises(SourceError, match="codex on PATH"):
         find_binary((str(tmp_path / "missing"),))
 
 

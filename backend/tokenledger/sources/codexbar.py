@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from datetime import timedelta
 
+from ..config import codexbar_timezone
 from ..ledger import local_today
 from ..models import DAY_TOTAL, CaptureResult, CostQuality, DayUsage, Scope, SeriesKey
 from .base import SourceContext, SourceError, run_tool
@@ -23,8 +23,6 @@ from .base import SourceContext, SourceError, run_tool
 HISTORY_DAYS = 365  # CodexBar's maximum
 PROVIDERS = ("claude", "antigravity")
 TIMEOUT_S = 900.0
-DEFAULTS_DOMAIN = "com.steipete.codexbar"
-TIMEZONE_KEY = "tokenCostUsageBucketTimeZone"
 
 
 def micros(usd: float | None) -> int | None:
@@ -65,14 +63,8 @@ class CodexBarCostSource:
         return text
 
     def _check_timezone(self, ctx: SourceContext) -> None:
-        try:
-            out = subprocess.run(
-                ["defaults", "read", DEFAULTS_DOMAIN, TIMEZONE_KEY], capture_output=True, text=True, timeout=10
-            )
-        except FileNotFoundError:
-            return  # not macOS; the CLI then buckets in the system timezone
-        tz = out.stdout.strip()
-        if out.returncode == 0 and tz and tz != ctx.settings.timezone:
+        tz = codexbar_timezone()  # None: CodexBar buckets in the system timezone
+        if tz and tz != ctx.settings.timezone:
             raise SourceError(
                 f"CodexBar buckets days in {tz} but the ledger uses {ctx.settings.timezone}; "
                 "change one of them so days line up"

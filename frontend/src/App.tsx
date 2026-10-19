@@ -54,7 +54,7 @@ function readLang(): Lang {
   } catch {
     /* ignore */
   }
-  return "zh";
+  return navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
 }
 
 export default function App() {

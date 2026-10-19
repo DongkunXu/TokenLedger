@@ -7,12 +7,13 @@
     <title>TokenLedger</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 4'%3E%3Cpath fill='%23111' d='M0 0h1v1H0zM1 0h1v1H1zM3 0h1v1H3zM0 1h1v1H0zM1 2h1v1H1zM3 2h1v1H3zM0 3h1v1H0zM2 3h1v1H2z'/%3E%3Cpath fill='%23ec5b12' d='M2 1h1v1H2z'/%3E%3Cpath fill='%231591b3' d='M0 2h1v1H0z'/%3E%3C/svg%3E" />
     <script>
-      // Resolve the theme before first paint (theme.ts keeps it current afterwards).
+      // Resolve theme and language before first paint (theme.ts and App.tsx keep them current).
       try {
         var t = localStorage.getItem("tokenledger.theme");
         var dark = t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-        if (localStorage.getItem("tokenledger.lang") === "en") document.documentElement.lang = "en";
+        var l = localStorage.getItem("tokenledger.lang") || (navigator.language.toLowerCase().indexOf("zh") === 0 ? "zh" : "en");
+        if (l === "en") document.documentElement.lang = "en";
       } catch (e) {}
     </script>
   </head>

@@ -1,6 +1,7 @@
 """Codex account-wide daily token totals, read from OpenAI's servers.
 
-Starts the Codex binary bundled with the ChatGPT app as ``codex app-server``,
+Starts the Codex CLI (the one bundled with the ChatGPT app, else ``codex`` on
+PATH) as ``codex app-server``,
 sends ``initialize`` and one read-only ``account/usage/read`` request over
 stdio (JSON-RPC, one message per line), then shuts it down. The response holds
 one token total per day for the whole account (all devices), with no split by
@@ -12,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import select
+import shutil
 import subprocess
 import tempfile
 import time
@@ -21,7 +23,8 @@ from ..models import DAY_TOTAL, CaptureResult, CostQuality, DayUsage, Scope, Ser
 from .base import SourceContext, SourceError, clean_env, run_tool
 
 # Where the ChatGPT app has shipped the Codex CLI, newest layout first. The app moves it
-# between releases, so each known location is tried in turn.
+# between releases, so each known location is tried in turn; a standalone ``codex`` on
+# PATH is the fallback.
 BINARY_CANDIDATES = (
     "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",  # ChatGPT 26.924+ (launcher script)
     "/Applications/ChatGPT.app/Contents/Resources/codex",  # earlier releases
@@ -29,11 +32,14 @@ BINARY_CANDIDATES = (
 TIMEOUT_S = 90.0
 
 
-def find_binary(candidates: tuple[str, ...] = BINARY_CANDIDATES) -> str:
+def find_binary(candidates: tuple[str, ...] = BINARY_CANDIDATES, fallback: str | None = "codex") -> str:
     for path in candidates:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
-    raise SourceError("Codex CLI not found in the ChatGPT app; looked at: " + ", ".join(candidates))
+    if fallback and (path := shutil.which(fallback)):
+        return path
+    looked = [*candidates, f"{fallback} on PATH"] if fallback else list(candidates)
+    raise SourceError("Codex CLI not found; looked at: " + ", ".join(looked))
 
 
 class CodexServerSource:

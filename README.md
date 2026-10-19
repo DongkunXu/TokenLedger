@@ -1,102 +1,166 @@
-# TokenLedger
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
+    <img src="docs/images/logo.svg" width="72" alt="TokenLedger logo">
+  </picture>
+</p>
 
-一本只增不减的 AI 用量账本。它每天从 CodexBar、Codex 本机日志和 OpenAI 服务器读取 Claude、Codex、Antigravity 的 token 数和按 API 标价估算的花费，存进本地数据库。每一天过了 3 天就定稿，之后日志被清理、CodexBar 改了算法，账本里的历史都保持原样。
+<h1 align="center">TokenLedger</h1>
 
-配套一个本地网页看板，以及一个给 Claude 用的 MCP 接口。
+<p align="center">
+  An append-only ledger of your AI coding usage: Claude, Codex and Antigravity tokens and their API list-price cost, kept on your Mac for good.
+</p>
 
-## 快速使用
+<p align="center">
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+![TokenLedger dashboard](docs/images/dashboard-en.jpg)
+
+## Why
+
+Claude Code deletes its session logs after 30 days, Codex logs get cleaned up, and tools that read them can change how they count. TokenLedger copies the daily numbers into a local SQLite ledger. Each day stays open for three days, then it is final: whatever happens to the logs later, the history stays as it was. When a source later reports something different for a final day, the ledger records it as a revision and keeps its own value.
+
+It comes with a local web dashboard and an MCP server, so you can also ask Claude about your usage.
+
+## Features
+
+- **Daily tokens and cost** per provider and per model, with cache reads, cache writes, input and output kept apart
+- **Account-wide Codex totals** from OpenAI's servers (all devices), next to the per-request detail from this Mac's logs
+- **Quota history**: 5-hour and weekly limit usage for Claude and Codex, with weekly peaks
+- **A dashboard** with daily and monthly charts, an activity heatmap, weekly cost, model breakdown and source health, in English and Chinese, light and dark
+- **Fun equivalents**: your tokens as copies of *Dream of the Red Chamber*, laps around the Earth, keyboards worn out, and more
+
+![Fun equivalents](docs/images/equivalents-en.jpg)
+
+## Requirements
+
+| What | Why | Install |
+|---|---|---|
+| macOS | CodexBar and the data paths are macOS ones | |
+| [CodexBar](https://github.com/steipete/CodexBar) | Claude and Antigravity usage, the model price table, quota history. The app also installs the `codexbar` command line tool. Open it once so it fills its price cache | `brew install --cask codexbar` |
+| Codex (optional) | Codex usage. Logs are read from `~/.codex`; account totals come from the Codex CLI bundled with the ChatGPT app, or `codex` on your PATH | ChatGPT app, or `npm i -g @openai/codex` |
+| Python 3.13+ | Backend | `brew install python@3.13` |
+| uv | Python environment | `brew install uv` |
+| Node.js | Builds the dashboard | `brew install node` |
+
+Everything runs locally. The only network request is the Codex CLI asking OpenAI for your account's daily totals, the same request the Codex app makes.
+
+## Quick start
 
 ```bash
+git clone https://github.com/DongkunXu/TokenLedger.git
+cd TokenLedger
+scripts/tokenledger.sh capture
 scripts/dashboard.sh open
 ```
 
-启动看板并打开 http://127.0.0.1:8765/ 。第一次运行会先构建前端。
+The first capture creates `data/` with the ledger and your settings, and the first `open` builds the dashboard and opens http://127.0.0.1:8765/. Later, press **Capture** on the dashboard or run `scripts/tokenledger.sh capture` again.
 
-### 看板服务的开启和关闭
+### How often to capture
 
-| 命令 | 作用 |
-|---|---|
-| `scripts/dashboard.sh start` | 在后台启动（已在运行就什么也不做） |
-| `scripts/dashboard.sh open` | 需要时启动，并在浏览器里打开 |
-| `scripts/dashboard.sh stop` | 正常关闭 |
-| `scripts/dashboard.sh restart` | 重启；更新了后端代码之后需要这一步 |
-| `scripts/dashboard.sh status` | 是否在运行、地址、运行了多久 |
-| `scripts/dashboard.sh logs` | 这次（或上一次）运行的日志 |
-| `scripts/dashboard.sh run` | 改在当前终端里运行，Ctrl+C 结束 |
+Accuracy does not depend on how often you capture, as long as the logs are still there when you do. Once every week or two is enough. Capture before you delete Claude or Codex conversations, and keep in mind that Claude Code removes session logs after 30 days.
 
-也可以直接跟 Claude 说"打开看板"或"关掉看板"，MCP 里有对应的工具。
+### Use it from Claude (MCP)
 
-服务在后台独立运行，关掉终端、重启 Claude 都不影响它，电脑睡眠时暂停、唤醒后继续。以下情况它会结束，每种都会在日志里写明原因：
-
-- 执行 `stop` 或 `restart`
-- 连续 12 小时没有任何页面请求，自动退出，免得忘了关一直挂着。用 `--idle-hours` 修改，设为 0 就一直运行
-- `run` 模式下按 Ctrl+C，或者关掉它所在的终端
-- 注销或关机
-
-前端改动重新构建后刷新页面即可；后端改动需要 `restart`。
-
-顶栏的"上次成功采集"是所有数据源最近一次都成功的时间，失败的尝试不会刷新它。某个数据源失败时，顶栏会一直显示红色提示，"数据来源"模块里能看到具体错误和上次成功的时间，直到它下次采集成功。
-
-### 其他命令
-
-| 命令 | 作用 |
-|---|---|
-| `scripts/tokenledger.sh capture` | 立即采集一次（CodexBar、Codex 本机日志、Codex 服务器、额度历史） |
-| `scripts/tokenledger.sh status` | 账本概况、最近采集和失败 |
-| `scripts/tokenledger.sh backfill --dry-run` | 预览从 CodexBar 旧缓存补录的结果 |
-| `scripts/tokenledger.sh accept <id>` | 采用某条来源变更的新数值（见下文） |
-| `scripts/test.sh` | 后端测试和前端类型检查 |
-| `scripts/build.sh` | 构建前端 |
-| `scripts/install-agent.sh` | 安装定时采集（每天 9:00、21:00；项目在 ~/Documents 下时会被 macOS 拦截，见架构文档） |
-| `scripts/uninstall-agent.sh` | 移除定时采集 |
-| `scripts/clean.sh` | 删除构建产物和依赖，账本数据不动 |
-| `scripts/grade-background.py` | 重新生成看板背景图（用法见文件开头） |
-
-## 数据从哪里来
-
-| 来源 | 内容 | 范围 |
-|---|---|---|
-| `codexbar cost` | Claude 每天每个模型的 token 和标价金额 | 这台 Mac 的本地日志 |
-| Codex 本机日志（`~/.codex/sessions`） | Codex 每天每个模型的 token 和标价金额，逐个请求去重 | 这台 Mac |
-| Codex 服务器（`codex app-server` 的 `account/usage/read`） | 每天的 token 总数 | 整个账号、所有设备 |
-| CodexBar 额度历史 | 5 小时和每周额度的使用百分比 | 整个账号 |
-| CodexBar 旧缓存（一次性补录） | 已被删除的日志里的请求 | 4 月 25 日起的 Claude，6 月到 8 月的 Codex |
-
-看板上 Codex 的 token 数优先用服务器的账号级数据；服务器的数据要晚半天到一天才完整，所以还在统计中的日子取服务器和本机里较大的那个。金额只来自本机明细，覆盖比例显示在"数据来源"模块里。
-
-Codex 的本机数据在 2026-10-04 之前来自 CodexBar。CodexBar 会把分叉对话从原对话继承来的累计 token 当成当天的新用量（10 月 4 日一天多算了约 4.7 亿），现在改由 TokenLedger 自己读日志，每个请求只算一次。日志已经不在的日子仍沿用 CodexBar 当时的记录。
-
-## 定稿规则
-
-- 某一天在当天和之后两天内是"统计中"，每次采集都更新
-- 过了这三天后的第一次采集负责定稿：来源的数不比账本小，就采用来源的数再定稿；变小或者这天不见了，保留账本的数，记一条"来源变更"
-- 定稿后数字固定，来源再给出不同的数值，只记一条"来源变更"
-- 如果确认是来源修正了错误，可以用 `accept` 采用新值，旧值会保留在记录里
-
-多久采集一次都能记准。一到两周点一次"立即采集"就够；清理 Claude 或 Codex 的对话之前记得先采集一次，Claude 命令行会话的日志 30 天后会被自动清理。
-
-## 目录
-
-```
-backend/    Python 后端：账本、数据源、API、MCP、命令行
-frontend/   React 看板（图表为手写 SVG）
-scripts/    所有构建、运行、测试脚本（缓存都限制在项目内）
-data/       账本数据库、原始采集归档、旧缓存副本（不进 git）
-docs/       架构说明
-research/   数据源调查记录和当时的原始快照
+```bash
+claude mcp add tokenledger --scope user -- "$PWD/scripts/mcp.sh"
 ```
 
-架构、数据模型和接口见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+Then ask things like "how many tokens did I use last week", "capture now" or "open the dashboard".
 
-## 产物和清理
+## The dashboard server
 
-| 产物 | 位置 | 由谁清理 |
+| Command | What it does |
+|---|---|
+| `scripts/dashboard.sh start` | Start in the background (does nothing when already running) |
+| `scripts/dashboard.sh open` | Start if needed and open it in the browser |
+| `scripts/dashboard.sh stop` | Stop |
+| `scripts/dashboard.sh restart` | Restart; needed after backend code changes |
+| `scripts/dashboard.sh status` | Whether it runs, its address and uptime |
+| `scripts/dashboard.sh logs` | Log of the current (or last) run |
+| `scripts/dashboard.sh run` | Run in this terminal instead; Ctrl+C stops it |
+
+The server is detached from the terminal that started it. It stops on `stop` or `restart`, on Ctrl+C in `run` mode, at logout, and after 12 hours without any page or API request (`--idle-hours`, 0 keeps it running). Each reason is written to the log. It listens on 127.0.0.1 only.
+
+The header shows when every source last succeeded. When a source fails, the header shows a red notice until that source succeeds again, and the Sources panel shows the error.
+
+## Other commands
+
+| Command | What it does |
+|---|---|
+| `scripts/tokenledger.sh capture` | Capture now |
+| `scripts/tokenledger.sh status` | Ledger overview, recent captures and failures |
+| `scripts/tokenledger.sh accept <id>` | Adopt a source's new value for a final day (see below) |
+| `scripts/tokenledger.sh backfill --dry-run` | Preview a backfill from old CodexBar caches copied into `data/legacy/` |
+| `scripts/test.sh` | Backend tests and frontend type check |
+| `scripts/build.sh` | Build the dashboard |
+| `scripts/clean.sh` | Remove build output and dependencies; ledger data stays |
+| `scripts/install-agent.sh` | Scheduled capture at 09:00 and 21:00 via launchd (blocked by macOS when the project lives in `~/Documents`) |
+| `scripts/uninstall-agent.sh` | Remove the scheduled capture |
+| `scripts/screenshots.py`, `scripts/grade-background.py` | Retake the README screenshots, regrade the background photo (usage at the top of each file) |
+
+## Data sources
+
+| Source | Provides | Scope |
 |---|---|---|
-| 账本、原始归档、旧缓存副本 | `data/` | 用户数据，手动决定 |
-| Python 环境、uv/npm 缓存、临时文件 | `backend/.venv`、`.build/` | `scripts/clean.sh` |
-| 前端依赖和构建 | `frontend/node_modules`、`frontend/dist` | `scripts/clean.sh` |
-| 定时采集 | `~/Library/LaunchAgents/io.github.dongkunxu.tokenledger.capture.plist` | `scripts/uninstall-agent.sh` |
-| 最近一次定时采集的输出 | `.build/logs/` | `scripts/clean.sh` |
-| 看板服务的状态文件和日志（只保留最近一次运行） | `.build/run/` | 服务退出时删除状态文件；`scripts/clean.sh` 会先停服务再清理 |
+| `codexbar cost` | Claude and Antigravity tokens and list-price cost per day and model | This Mac's logs |
+| Codex logs (`~/.codex/sessions`) | Codex tokens and list-price cost per day and model, each request counted once | This Mac |
+| Codex server (`account/usage/read` via `codex app-server`) | Daily token totals | Your whole OpenAI account |
+| CodexBar quota history | 5-hour and weekly limit percentages | Your accounts |
 
-采集一次大约 2 秒。每次采集的原始归档约 16 KB，按每天两次算，一年约 12 MB。
+For Codex, the dashboard prefers the account-wide totals. The server lags half a day to a day, so for days still open it takes whichever of the server and this Mac is larger. Cost only comes from this Mac's per-request detail; the Sources panel shows how much of the tokens it covers.
+
+## Settling rules
+
+- Day D is *open* on D, D+1 and D+2; every capture overwrites it
+- The first capture after that settles it: if the source's total did not shrink, the ledger takes the source's numbers and freezes the day; if it shrank or the day is gone, the ledger keeps its own numbers and records a revision
+- After that the numbers are fixed; a different value from a source is only recorded as a revision
+- If a revision turns out to be a real correction by the source, `accept` adopts it and keeps the old value on record
+
+## Settings
+
+`data/settings.json` is created on first use:
+
+| Key | Default |
+|---|---|
+| `timezone` | CodexBar's day timezone if set, else this Mac's timezone. Days are bucketed in it, and it must match CodexBar's |
+| `grace_days` | 3 |
+| `machine` | An id and label for this Mac |
+
+Changing the timezone after days have been settled makes old and new days disagree at midnight, so set it before your first capture if the default is wrong.
+
+## Where things live
+
+| What | Where | Cleaned by |
+|---|---|---|
+| Ledger, raw capture archive, settings | `data/` | You |
+| Python env, uv/npm caches, temp files | `backend/.venv`, `.build/` | `scripts/clean.sh` |
+| Frontend dependencies and build | `frontend/node_modules`, `frontend/dist` | `scripts/clean.sh` |
+| Dashboard state and log (last run only) | `.build/run/` | Removed on exit; `scripts/clean.sh` |
+| Scheduled capture | `~/Library/LaunchAgents/io.github.dongkunxu.tokenledger.capture.plist` | `scripts/uninstall-agent.sh` |
+
+A capture takes about 2 seconds and archives about 16 KB of raw output.
+
+```
+backend/    Python: ledger, sources, API, MCP, command line
+frontend/   React dashboard (charts are hand-written SVG)
+scripts/    Build, run and test scripts (caches stay inside the project)
+data/       Your ledger (not in git)
+docs/       Architecture notes and images
+research/   The data source investigation the design is based on
+```
+
+Architecture, data model and API: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Credits
+
+- [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger, which does the hard work of reading Claude's logs and pricing them
+- Fonts: [Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch), [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and [Silkscreen](https://fonts.google.com/specimen/Silkscreen), via Fontsource (SIL Open Font License)
+- Background: a colour-graded photo by Mohammad Alizade on [Unsplash](https://unsplash.com/photos/XgeZu2jBaVI)
+
+Not affiliated with Anthropic, OpenAI or Google. Costs are estimates at API list prices; subscription plans are billed differently.
+
+## License
+
+[MIT](LICENSE)

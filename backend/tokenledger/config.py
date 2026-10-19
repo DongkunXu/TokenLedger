@@ -3,7 +3,9 @@
 Settings live in ``<data>/settings.json`` and are created on first use. The
 timezone decides how days are bucketed; it must match CodexBar's own
 ``tokenCostUsageBucketTimeZone`` so that a day means the same thing on both
-sides. The machine id is generated once and identifies this computer's series.
+sides. On first use it is taken from CodexBar, or from this computer when
+CodexBar has no setting. The machine id is generated once and identifies this
+computer's series.
 """
 
 from __future__ import annotations
@@ -18,7 +20,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-DEFAULT_TIMEZONE = "Europe/London"
+CODEXBAR_DEFAULTS = "com.steipete.codexbar"
+CODEXBAR_TIMEZONE_KEY = "tokenCostUsageBucketTimeZone"
 DEFAULT_GRACE_DAYS = 3
 
 
@@ -76,6 +79,32 @@ class Settings:
         return ZoneInfo(self.timezone)
 
 
+def codexbar_timezone() -> str | None:
+    """The timezone CodexBar buckets days in, if it has one set (macOS only)."""
+    try:
+        out = subprocess.run(
+            ["defaults", "read", CODEXBAR_DEFAULTS, CODEXBAR_TIMEZONE_KEY], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    tz = out.stdout.strip()
+    return tz if out.returncode == 0 and tz else None
+
+
+def system_timezone() -> str:
+    """This computer's IANA timezone name, or UTC when it cannot be determined."""
+    name = os.environ.get("TZ", "").lstrip(":")
+    if not name:
+        target = os.path.realpath("/etc/localtime")
+        if "zoneinfo/" in target:
+            name = target.split("zoneinfo/", 1)[1]
+    try:
+        ZoneInfo(name)
+    except (ValueError, KeyError):  # empty, malformed or unknown name
+        return "UTC"
+    return name
+
+
 def _computer_name() -> str:
     if platform.system() == "Darwin":
         try:
@@ -103,7 +132,8 @@ def load_settings(paths: Paths) -> Settings:
             machine=Machine(**raw["machine"]),
         )
     else:
-        settings = Settings(timezone=DEFAULT_TIMEZONE, grace_days=DEFAULT_GRACE_DAYS, machine=_new_machine())
+        timezone = codexbar_timezone() or system_timezone()
+        settings = Settings(timezone=timezone, grace_days=DEFAULT_GRACE_DAYS, machine=_new_machine())
         paths.data.mkdir(parents=True, exist_ok=True)
         paths.settings.write_text(json.dumps(asdict(settings), indent=2) + "\n")
     ZoneInfo(settings.timezone)  # fail fast on an invalid timezone
