@@ -9,7 +9,7 @@ source "$(dirname "$0")/env.sh"
 if [ "${1:-}" = "--cloud" ]; then
   shift
   export TOKENLEDGER_CLOUD_TEST=1
-  [ -d "$ROOT/cloud/node_modules" ] || (cd "$ROOT/cloud" && npm ci --silent)
+  [ "$ROOT/cloud/node_modules/.package-lock.json" -nt "$ROOT/cloud/package-lock.json" ] || (cd "$ROOT/cloud" && npm ci --silent)
 fi
 
 cd "$ROOT/backend"

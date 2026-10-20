@@ -4,7 +4,11 @@ Push-Location ([IO.Path]::Combine($Root, "backend"))
 try { Invoke-Checked uv sync --quiet } finally { Pop-Location }
 Push-Location ([IO.Path]::Combine($Root, "frontend"))
 try {
-  if (-not (Test-Path "node_modules")) { Invoke-Checked npm ci --silent }
+  # Install when missing or when package-lock.json changed since (a pulled update)
+  $marker = Join-Path "node_modules" ".package-lock.json"
+  if (-not (Test-Path $marker) -or (Get-Item "package-lock.json").LastWriteTime -gt (Get-Item $marker).LastWriteTime) {
+    Invoke-Checked npm ci --silent
+  }
   Invoke-Checked npm run --silent build
 } finally {
   Pop-Location

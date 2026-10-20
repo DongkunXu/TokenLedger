@@ -17,6 +17,6 @@ export WRANGLER_SEND_METRICS="false"
 mkdir -p "$XDG_CONFIG_HOME" "$WRANGLER_LOG_PATH"
 
 cd "$ROOT/cloud"
-[ -d node_modules ] || npm ci --silent
+[ node_modules/.package-lock.json -nt package-lock.json ] || npm ci --silent
 cd "$ROOT/backend" && uv sync --quiet
 exec uv run --quiet python "$ROOT/scripts/cloud.py" "$@"

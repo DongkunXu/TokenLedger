@@ -4,5 +4,6 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 cd "$ROOT/backend" && uv sync --quiet
 cd "$ROOT/frontend"
-[ -d node_modules ] || npm ci --silent
+# Install when missing or when package-lock.json changed since (a pulled update)
+[ node_modules/.package-lock.json -nt package-lock.json ] || npm ci --silent
 npm run --silent build
