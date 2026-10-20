@@ -367,3 +367,18 @@ def test_unreachable_hub_is_recorded_not_raised(tmp_path):
     assert result["ok"] is False and "no answer" in result["error"]
     assert client.status(node_paths)["last_ok"] is False
     conn.close()
+
+
+def test_hub_started_on_a_copied_ledger_attributes_old_captures(tmp_path):
+    from tokenledger.sync.hub import create_hub_app
+
+    paths, settings = setup_machine(tmp_path / "hub", HUB)
+    conn = open_db(paths.db)
+    old = make_settings(Machine("old-hub", "Old hub", "darwin"))
+    capture_into(conn, old, node_series("old-hub"), [usage("2026-10-10", 5)], "2026-10-19T10:00:00")
+    conn.close()
+    client.hub_init(paths)
+    create_hub_app(paths)
+    conn = open_db(paths.db)
+    assert [r["machine"] for r in conn.execute("SELECT machine FROM captures")] == ["old-hub"]
+    conn.close()

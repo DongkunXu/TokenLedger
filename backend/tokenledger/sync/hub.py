@@ -56,6 +56,14 @@ def create_hub_app(paths: Paths | None = None) -> FastAPI:
         migrate(c)
         with repo.transaction(c):
             repo.ensure_machine(c, settings.machine, iso_now())
+            # A ledger copied from a previous hub: its own captures name no machine. Those
+            # tied to another machine's series belong to that machine, not to this one.
+            c.execute(
+                "UPDATE captures SET machine = (SELECT s.machine FROM series s WHERE s.id = captures.series_id) "
+                "WHERE machine IS NULL AND series_id IN "
+                "(SELECT id FROM series WHERE scope = 'machine' AND machine != ?)",
+                (settings.machine.id,),
+            )
     finally:
         c.close()
     app = FastAPI(title="TokenLedger hub", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
