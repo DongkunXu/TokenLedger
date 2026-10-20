@@ -29,7 +29,7 @@ Claude Code 的会话日志 30 天后会被自动删除，Codex 的日志也会�
 - **Codex 账号级总数**：来自 OpenAI 服务器（所有设备），和各台电脑日志里的逐请求明细并列
 - **额度历史**：Claude 和 Codex 的 5 小时、每周额度使用比例，以及每周峰值
 - **看板**：每日和每月图表、活跃热力图、每周花费、模型排行、数据来源状态；中英文界面，亮色暗色主题
-- **多台电脑**：macOS、Windows、Linux 通过你自己在 Cloudflare 上部署的云端账本合成一本账，看板上能看到每台电脑各用了多少。同样的看板也能在网页上看，用通行密钥登录（[docs/MULTI_MACHINE.md](docs/MULTI_MACHINE.md)）
+- **多台电脑**：macOS、Windows、Linux 通过你自己在 Cloudflare 上部署的云端账本合成一本账，看板上能看到每台电脑各用了多少。同样的看板也能在网页上看，用 Google 或通行密钥登录（[docs/MULTI_MACHINE.md](docs/MULTI_MACHINE.md)）
 - **趣味换算**：你的 token 相当于几部《红楼梦》、能绕地球几圈、要敲坏几把键盘等等
 
 ![趣味换算](docs/images/equivalents-zh.jpg)
@@ -80,13 +80,14 @@ claude mcp add tokenledger --scope user -- "$PWD/scripts/mcp.sh"
 
 ## 多台电脑
 
-每台电脑照常往自己的账本里采集，再通过一个**云端账本**共享。云端账本只需在你自己的 Cloudflare 账号上部署一次，免费套餐就够。每台电脑都会合并其他电脑共享的数据，所以每台电脑的看板都能看到全部电脑；云端也提供同样的看板，用通行密钥登录后在网页上看。
+每台电脑照常往自己的账本里采集，再通过一个**云端账本**共享。云端账本只需在你自己的 Cloudflare 账号上部署一次，免费套餐就够。每台电脑都会合并其他电脑共享的数据，所以每台电脑的看板都能看到全部电脑；云端也提供同样的看板，用 Google 或通行密钥登录后在网页上看。
 
 只需一次，在任意一台电脑上（域名要在你的 Cloudflare 账号里，详见 [docs/MULTI_MACHINE.md](docs/MULTI_MACHINE.md)）：
 
 ```bash
 scripts/cloud.sh login                       # 登录 Cloudflare，只授予部署所需的权限
-scripts/cloud.sh deploy tokens.example.com   # 输出一个链接，用通行密钥创建你的账户
+scripts/cloud.sh deploy tokens.example.com   # 输出一个创建账户的链接
+scripts/cloud.sh google <client-id>          # 可选：用 Google 登录（Google OAuth 客户端 ID）
 ```
 
 在每台电脑上：
@@ -128,7 +129,7 @@ scripts/install-agent.sh                                       # 每天采集并
 | `scripts/install-agent.sh` | 每天 9:00、21:00 定时采集：macOS 用 launchd（项目放在 `~/Documents` 下时会被 macOS 拦截），Linux 用 systemd 用户定时器 |
 | `scripts/uninstall-agent.sh` | 移除定时采集 |
 | `scripts/tokenledger.sh sync login <url>\|now\|status\|logout` | 多台电脑：登录这台电脑、立即同步、上次结果、退出 |
-| `scripts/cloud.sh login\|deploy\|setup-code\|recover <name>\|status\|dev` | 云端账本：部署和更新、账户链接、在本地运行 |
+| `scripts/cloud.sh login\|deploy\|google <id>\|setup-code\|recover <name>\|status\|dev` | 云端账本：部署和更新、Google 登录、账户链接、在本地运行 |
 | `scripts\*.ps1` | Windows：`tokenledger.ps1`、`dashboard.ps1`、`build.ps1`、`install-agent.ps1 [-Remove]`（任务计划程序） |
 | `scripts/screenshots.py`、`scripts/grade-background.py` | 重新截取 README 截图、重新给背景照片调色（用法见各文件开头） |
 

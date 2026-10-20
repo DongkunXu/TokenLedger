@@ -187,7 +187,13 @@ export interface View {
 
 export type Session =
   | { mode: "local" }
-  | { mode: "cloud"; user: { name: string; admin: boolean } | null; setup_needed: boolean };
+  | { mode: "cloud"; user: { name: string; admin: boolean } | null; setup_needed: boolean; google: boolean };
+
+export interface Identity {
+  provider: string;
+  email: string | null;
+  created_at: string;
+}
 
 export interface Device {
   id: string;

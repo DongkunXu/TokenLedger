@@ -27,6 +27,7 @@ LOGIN_SCOPES = (
     "account:read", "user:read", "workers:write", "workers_scripts:write", "workers_routes:write",
     "d1:write", "zone:read", "ssl_certs:write",
 )
+GOOGLE_CLIENT_ID = re.compile(r"^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$")
 DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 
@@ -71,6 +72,9 @@ def write_config(conf: dict, *, dev: bool = False, assets: Path | None = None, p
         f'database_id = "{conf.get("database_id") or "00000000-0000-0000-0000-000000000000"}"',
         f'migrations_dir = "{CLOUD / "migrations"}"',
     ]
+    variables = {"GOOGLE_CLIENT_ID": conf.get("google_client_id"), **conf.get("vars", {})}
+    if any(variables.values()):
+        lines += ["", "[vars]", *(f'{k} = "{v}"' for k, v in variables.items() if v)]
     if not dev:
         lines += ["", "[[routes]]", f'pattern = "{conf["domain"]}"', "custom_domain = true"]
     path.write_text("\n".join(lines) + "\n")
@@ -157,6 +161,18 @@ def cmd_deploy(domain: str | None) -> None:
         print(f"create your account (valid {CODE_HOURS} h, once): {link}")
 
 
+def cmd_google(client_id: str) -> None:
+    """Let people sign in with Google: the OAuth client id of a Google Cloud project (no secret
+    is needed). Its authorized redirect URI must be the address printed here."""
+    conf = _need()
+    if not GOOGLE_CLIENT_ID.match(client_id):
+        sys.exit(f"not a Google OAuth client id: {client_id!r} (it ends in .apps.googleusercontent.com)")
+    conf["google_client_id"] = client_id
+    save(conf)
+    print(f"authorized redirect URI to set on the client: https://{conf['domain']}/api/auth/google/callback")
+    cmd_deploy(None)
+
+
 def cmd_setup_code() -> None:
     conf = _need()
     link = setup_link(conf, write_config(conf))
@@ -208,6 +224,8 @@ def main(argv: list[str]) -> None:
         cmd_login(*rest)
     elif command == "deploy":
         cmd_deploy(rest[0] if rest else None)
+    elif command == "google" and rest:
+        cmd_google(rest[0])
     elif command == "setup-code":
         cmd_setup_code()
     elif command == "recover" and rest:
@@ -217,7 +235,7 @@ def main(argv: list[str]) -> None:
     elif command == "dev":
         cmd_dev()
     else:
-        sys.exit("usage: scripts/cloud.sh login | deploy [domain] | setup-code | recover <name> | status | dev")
+        sys.exit("usage: scripts/cloud.sh login | deploy [domain] | google <client-id> | setup-code | recover <name> | status | dev")
 
 
 if __name__ == "__main__":

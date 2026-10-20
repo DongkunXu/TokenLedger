@@ -29,7 +29,7 @@ It comes with a local web dashboard and an MCP server, so you can also ask Claud
 - **Account-wide Codex totals** from OpenAI's servers (all devices), next to the per-request detail from each machine's logs
 - **Quota history**: 5-hour and weekly limit usage for Claude and Codex, with weekly peaks
 - **A dashboard** with daily and monthly charts, an activity heatmap, weekly cost, model breakdown and source health, in English and Chinese, light and dark
-- **Several machines**: macOS, Windows and Linux share one ledger through your own Cloudflare deployment, and the dashboard shows how much each machine used. The same dashboard is on the web, behind a passkey sign-in ([docs/MULTI_MACHINE.md](docs/MULTI_MACHINE.md))
+- **Several machines**: macOS, Windows and Linux share one ledger through your own Cloudflare deployment, and the dashboard shows how much each machine used. The same dashboard is on the web, behind a Google or passkey sign-in ([docs/MULTI_MACHINE.md](docs/MULTI_MACHINE.md))
 - **Fun equivalents**: your tokens as copies of *Dream of the Red Chamber*, laps around the Earth, keyboards worn out, and more
 
 ![Fun equivalents](docs/images/equivalents-en.jpg)
@@ -80,13 +80,14 @@ Then ask things like "how many tokens did I use last week", "capture now" or "op
 
 ## Several machines
 
-Every machine keeps capturing into its own ledger and shares it through a **cloud ledger** you deploy once on your own Cloudflare account (the free plan is enough). Each machine merges what the others share, so every dashboard shows all machines, and the cloud serves the same dashboard on the web after a passkey sign-in.
+Every machine keeps capturing into its own ledger and shares it through a **cloud ledger** you deploy once on your own Cloudflare account (the free plan is enough). Each machine merges what the others share, so every dashboard shows all machines, and the cloud serves the same dashboard on the web after you sign in with Google or a passkey.
 
 Once, on any machine (a domain on your Cloudflare account; see [docs/MULTI_MACHINE.md](docs/MULTI_MACHINE.md)):
 
 ```bash
 scripts/cloud.sh login                       # Cloudflare sign-in, deploy rights only
-scripts/cloud.sh deploy tokens.example.com   # prints a link to create your account with a passkey
+scripts/cloud.sh deploy tokens.example.com   # prints a link to create your account
+scripts/cloud.sh google <client-id>          # optional: sign in with Google (a Google OAuth client id)
 ```
 
 On every machine:
@@ -128,7 +129,7 @@ The header shows when every source last succeeded. When a source fails, the head
 | `scripts/install-agent.sh` | Scheduled capture at 09:00 and 21:00: launchd on macOS (blocked by macOS when the project lives in `~/Documents`), a systemd user timer on Linux |
 | `scripts/uninstall-agent.sh` | Remove the scheduled capture |
 | `scripts/tokenledger.sh sync login <url>\|now\|status\|logout` | Several machines: sign this machine in, sync now, last outcome, sign out |
-| `scripts/cloud.sh login\|deploy\|setup-code\|recover <name>\|status\|dev` | The cloud ledger: deploy and update it, account links, run it locally |
+| `scripts/cloud.sh login\|deploy\|google <id>\|setup-code\|recover <name>\|status\|dev` | The cloud ledger: deploy and update it, Google sign-in, account links, run it locally |
 | `scripts\*.ps1` | Windows: `tokenledger.ps1`, `dashboard.ps1`, `build.ps1`, `install-agent.ps1 [-Remove]` (Task Scheduler) |
 | `scripts/screenshots.py`, `scripts/grade-background.py` | Retake the README screenshots, regrade the background photo (usage at the top of each file) |
 

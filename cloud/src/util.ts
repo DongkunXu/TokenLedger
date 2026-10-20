@@ -3,6 +3,11 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  GOOGLE_CLIENT_ID?: string; // set: people sign in with Google (google.ts)
+  // Only for tests against a stand-in for Google:
+  GOOGLE_AUTH_URL?: string;
+  GOOGLE_JWKS_URL?: string;
+  GOOGLE_ISSUER?: string;
 }
 
 export class HttpError extends Error {

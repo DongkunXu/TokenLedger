@@ -3,6 +3,7 @@
 #   scripts/cloud.sh login                 sign in to Cloudflare (opens the browser once)
 #   scripts/cloud.sh deploy <domain>       first deploy, e.g. tokens.example.com (a domain on your account)
 #   scripts/cloud.sh deploy                deploy again after an update
+#   scripts/cloud.sh google <client-id>    sign in with Google instead of passkeys (see docs/MULTI_MACHINE.md)
 #   scripts/cloud.sh setup-code            a new link for creating the first account
 #   scripts/cloud.sh recover <name>        a link that lets <name> add a passkey (lost every passkey)
 #   scripts/cloud.sh status                what is deployed where

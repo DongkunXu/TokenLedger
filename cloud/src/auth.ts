@@ -1,9 +1,9 @@
-// People and their sign-in: passkeys, sessions, one-time codes.
+// People and their sign-in: passkeys, sessions, one-time codes (Google: google.ts).
 //
-// There are no passwords. A person signs in with a passkey (Touch ID, Face ID, Windows
-// Hello, a phone or a security key). The first account is created with a setup code
+// There are no passwords. A person signs in with Google when the deployment has a Google
+// client id, or with a passkey (Touch ID, Face ID, Windows Hello, a phone or a security key). The first account is created with a setup code
 // printed by `scripts/cloud.sh deploy`; later accounts with an invitation from an admin.
-// A person who lost every passkey gets a recovery code from whoever runs the deployment
+// A person who lost every way to sign in gets a recovery code from whoever runs the deployment
 // (`scripts/cloud.sh recover <name>`), which lets them add a new one.
 
 import {
@@ -58,7 +58,7 @@ export async function requireUser(request: Request, env: Env): Promise<User> {
   return user;
 }
 
-async function startSession(env: Env, user: string): Promise<string> {
+export async function startSession(env: Env, user: string): Promise<string> {
   const value = randomToken();
   await env.DB.prepare("INSERT INTO sessions(id, user_id, created_at, expires_at) VALUES(?, ?, ?, ?)")
     .bind(await sha256(value), user, now(), later(SESSION_DAYS * 86400))
@@ -68,13 +68,14 @@ async function startSession(env: Env, user: string): Promise<string> {
 
 const CLEAR_COOKIE = `${SESSION_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`;
 
-async function forgetExpired(env: Env): Promise<void> {
+export async function forgetExpired(env: Env): Promise<void> {
   const t = now();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(t),
     env.DB.prepare("DELETE FROM challenges WHERE expires_at <= ?").bind(t),
     env.DB.prepare("DELETE FROM codes WHERE expires_at <= ? OR used_at IS NOT NULL").bind(t),
     env.DB.prepare("DELETE FROM links WHERE expires_at <= ?").bind(t),
+    env.DB.prepare("DELETE FROM oauth_states WHERE expires_at <= ?").bind(t),
   ]);
 }
 
@@ -88,6 +89,59 @@ async function findCode(env: Env, code: string): Promise<Code> {
     .first<Code>();
   if (!found) throw new HttpError(403, "this link has expired or was already used");
   return found;
+}
+
+// -- enrolling: a new account, a lost account back, one more sign-in method ----------------------
+
+// Who a passkey or Google account is being added to: the signed-in person, or the account a
+// one-time code creates (setup, invite) or recovers.
+export interface Enrollment {
+  user_id: string;
+  name: string;
+  new_user: boolean;
+  code_id: string | null;
+  admin: boolean;
+}
+
+export async function enrollment(env: Env, current: User | null, body: { code?: string; name?: string }): Promise<Enrollment> {
+  if (current) {
+    return { user_id: current.id, name: current.name, new_user: false, code_id: null, admin: !!current.admin };
+  }
+  const code = await findCode(env, str(body.code, "code"));
+  if (code.kind === "recover") {
+    const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(code.user_id).first<User>();
+    if (!user) throw new HttpError(403, "this link has expired or was already used");
+    return { user_id: user.id, name: user.name, new_user: false, code_id: code.id, admin: !!user.admin };
+  }
+  const name = str(body.name, "name", 40);
+  if (!NAME.test(name)) throw new HttpError(400, "use letters, digits, spaces, dots, dashes or underscores");
+  if (code.kind === "setup" && (await env.DB.prepare("SELECT 1 FROM users LIMIT 1").first())) {
+    throw new HttpError(403, "this ledger is already set up");
+  }
+  if (await env.DB.prepare("SELECT 1 FROM users WHERE name = ?").bind(name).first()) {
+    throw new HttpError(409, "that name is taken");
+  }
+  return { user_id: randomToken(16), name, new_user: true, code_id: code.id, admin: code.kind === "setup" };
+}
+
+// Spent before anything is created: of two attempts with one code, only one gets it.
+export async function spendCode(env: Env, data: Enrollment, t: string): Promise<void> {
+  if (!data.code_id) return;
+  const spent = await env.DB.prepare(
+    "UPDATE codes SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ? RETURNING id",
+  )
+    .bind(t, data.code_id, t)
+    .first();
+  if (!spent) throw new HttpError(403, "this link has expired or was already used");
+}
+
+export function newUser(env: Env, data: Enrollment, t: string): D1PreparedStatement[] {
+  if (!data.new_user) return [];
+  return [
+    env.DB.prepare("INSERT INTO users(id, name, admin, created_at) VALUES(?, ?, ?, ?)").bind(
+      data.user_id, data.name, data.admin ? 1 : 0, t,
+    ),
+  ];
 }
 
 // -- routes -----------------------------------------------------------------------------------
@@ -105,33 +159,13 @@ export async function routeAuth(request: Request, env: Env, path: string): Promi
       mode: "cloud",
       user: user ? { name: user.name, admin: !!user.admin } : null,
       setup_needed: !anyone,
+      google: !!env.GOOGLE_CLIENT_ID,
     });
   }
 
   if (path === "/api/passkey/register/options" && method === "POST") {
     const body = await readJson<{ code?: string; name?: string }>(request);
-    const current = await sessionUser(request, env);
-    let data: { user_id: string; name: string; new_user: boolean; code_id: string | null; admin: boolean };
-    if (current) {
-      data = { user_id: current.id, name: current.name, new_user: false, code_id: null, admin: !!current.admin };
-    } else {
-      const code = await findCode(env, str(body.code, "code"));
-      if (code.kind === "recover") {
-        const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(code.user_id).first<User>();
-        if (!user) throw new HttpError(403, "this link has expired or was already used");
-        data = { user_id: user.id, name: user.name, new_user: false, code_id: code.id, admin: !!user.admin };
-      } else {
-        const name = str(body.name, "name", 40);
-        if (!NAME.test(name)) throw new HttpError(400, "use letters, digits, spaces, dots, dashes or underscores");
-        if (code.kind === "setup" && (await env.DB.prepare("SELECT 1 FROM users LIMIT 1").first())) {
-          throw new HttpError(403, "this ledger is already set up");
-        }
-        if (await env.DB.prepare("SELECT 1 FROM users WHERE name = ?").bind(name).first()) {
-          throw new HttpError(409, "that name is taken");
-        }
-        data = { user_id: randomToken(16), name, new_user: true, code_id: code.id, admin: code.kind === "setup" };
-      }
-    }
+    const data = await enrollment(env, await sessionUser(request, env), body);
     const existing = await env.DB.prepare("SELECT id, transports FROM passkeys WHERE user_id = ?")
       .bind(data.user_id)
       .all<{ id: string; transports: string | null }>();
@@ -155,9 +189,7 @@ export async function routeAuth(request: Request, env: Env, path: string): Promi
   if (path === "/api/passkey/register/verify" && method === "POST") {
     const body = await readJson<{ challenge_id: string; response: RegistrationResponseJSON }>(request);
     const challenge = await takeChallenge(env, str(body.challenge_id, "challenge_id"), "register");
-    const data = JSON.parse(challenge.data ?? "{}") as {
-      user_id: string; name: string; new_user: boolean; code_id: string | null; admin: boolean;
-    };
+    const data = JSON.parse(challenge.data ?? "{}") as Enrollment;
     const current = await sessionUser(request, env);
     if (!data.code_id && current?.id !== data.user_id) throw new HttpError(401, "sign in first");
     const verification = await verifyRegistrationResponse({
@@ -172,23 +204,8 @@ export async function routeAuth(request: Request, env: Env, path: string): Promi
     if (!verification.verified) throw new HttpError(400, "passkey not accepted");
     const credential = verification.registrationInfo.credential;
     const t = now();
-    if (data.code_id) {
-      // Spent before anything is created: of two attempts with one code, only one gets it.
-      const spent = await env.DB.prepare(
-        "UPDATE codes SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ? RETURNING id",
-      )
-        .bind(t, data.code_id, t)
-        .first();
-      if (!spent) throw new HttpError(403, "this link has expired or was already used");
-    }
-    const statements: D1PreparedStatement[] = [];
-    if (data.new_user) {
-      statements.push(
-        env.DB.prepare("INSERT INTO users(id, name, admin, created_at) VALUES(?, ?, ?, ?)").bind(
-          data.user_id, data.name, data.admin ? 1 : 0, t,
-        ),
-      );
-    }
+    await spendCode(env, data, t);
+    const statements = newUser(env, data, t);
     statements.push(
       env.DB.prepare(
         "INSERT INTO passkeys(id, user_id, public_key, counter, transports, created_at) VALUES(?, ?, ?, ?, ?, ?)",
@@ -259,8 +276,12 @@ export async function routeAuth(request: Request, env: Env, path: string): Promi
   const passkeyMatch = path.match(/^\/api\/passkeys\/([A-Za-z0-9_-]{1,1024})$/);
   if (passkeyMatch && method === "DELETE") {
     const user = await requireUser(request, env);
-    const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?").bind(user.id).first<{ n: number }>();
-    if ((count?.n ?? 0) <= 1) throw new HttpError(409, "this is your only passkey; add another one first");
+    const count = await env.DB.prepare(
+      "SELECT (SELECT COUNT(*) FROM passkeys WHERE user_id = ?1) + (SELECT COUNT(*) FROM identities WHERE user_id = ?1) AS n",
+    )
+      .bind(user.id)
+      .first<{ n: number }>();
+    if ((count?.n ?? 0) <= 1) throw new HttpError(409, "this is your only way to sign in; add another one first");
     await env.DB.prepare("DELETE FROM passkeys WHERE id = ? AND user_id = ?").bind(passkeyMatch[1], user.id).run();
     return json({ ok: true });
   }

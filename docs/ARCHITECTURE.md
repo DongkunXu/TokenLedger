@@ -32,7 +32,7 @@ TokenLedger/
 │   └── src/
 │       ├── api/             API types and requests
 │       ├── panels/          The nine panels (00 Total … 08 Sources)
-│       ├── cloud/           Cloud dashboard pages: passkey sign-in, accounts, approving a computer
+│       ├── cloud/           Cloud dashboard pages: Google and passkey sign-in, accounts, approving a computer
 │       ├── components/      Panel frame, rail, top bar, toggles, pixel meters, tooltips, fun equivalents
 │       ├── i18n/strings.ts  Every UI string (Chinese / English)
 │       ├── theme/           Light and dark design tokens, theme switching
@@ -229,12 +229,13 @@ The interface follows the browser's language (Chinese or English) until you pick
 
 `index.html` is served with `Cache-Control: no-cache`, so a rebuild shows up on refresh; hashed asset files are cached as usual.
 
-The cloud dashboard is the same build. It asks `/api/session` first: signed out, it shows the passkey sign-in; on `/setup`, `/join` and `/recover` it creates an account or adds a passkey; on `/link` it approves a computer. The data comes from `/api/view` as on a local dashboard, published there by the machines.
+The cloud dashboard is the same build. It asks `/api/session` first: signed out, it shows the Google or passkey sign-in; on `/setup`, `/join` and `/recover` it creates an account or adds a way to sign in; on `/link` it approves a computer. The data comes from `/api/view` as on a local dashboard, published there by the machines.
 
 ## Cloud ledger (cloud/)
 
 A Cloudflare Worker with a D1 database, deployed with `scripts/cloud.sh` (wrangler). It stores and hands out what machines share and never reads it, so it stays far inside the free plan's limits (10 ms CPU per request):
 
+- `src/google.ts`: signing in with Google (OpenID Connect, ID token posted back, checked against Google's keys; no client secret); only linked Google accounts
 - `src/auth.ts`: people. Passkeys (SimpleWebAuthn), 30-day sessions in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie, one-time codes for the first account, invitations and recovery
 - `src/sync.ts`: machines. Signing in (`/api/link/start`, approve on the web, `/api/link/poll` hands the device token over once); the snapshot list, each machine's snapshot, the dashboard per range (`/api/sync/*`, bearer token, checked against the machine id, ledger instance and computer); devices seen by their owner; `/api/view` for the signed-in person
 - `src/index.ts`: routing, the static files, security headers on every response, and refusing changing cookie requests from another origin

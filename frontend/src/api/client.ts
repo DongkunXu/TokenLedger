@@ -1,5 +1,5 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import type { CaptureOutcome, Device, LinkRequest, PasskeyInfo, Session, View } from "./types";
+import type { CaptureOutcome, Device, Identity, LinkRequest, PasskeyInfo, Session, View } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -56,6 +56,12 @@ export const api = {
     const response = await startRegistration({ optionsJSON: start.options });
     return post<{ ok: true; name: string }>("passkey/register/verify", { challenge_id: start.challenge_id, response });
   },
+  // Leaves the page for Google; the answer comes back to the dashboard. Same purposes as addPasskey.
+  google: async (code?: string, name?: string, next?: string) => {
+    const start = await post<{ url: string }>("auth/google/start", { code, name, next });
+    window.location.assign(start.url);
+  },
+  identities: () => get<{ identities: Identity[] }>("identities"),
   signOut: () => post<{ ok: true }>("logout"),
   passkeys: () => get<{ passkeys: PasskeyInfo[] }>("passkeys"),
   removePasskey: (id: string) => call<{ ok: true }>("DELETE", `passkeys/${id}`),

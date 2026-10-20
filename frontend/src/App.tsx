@@ -91,9 +91,9 @@ export default function App() {
       </div>
     );
   } else if (session.mode === "cloud" && ENROLL[path]) {
-    page = <Enroll kind={ENROLL[path]} setupNeeded={session.setup_needed} chrome={chrome} />;
+    page = <Enroll kind={ENROLL[path]} setupNeeded={session.setup_needed} google={session.google} chrome={chrome} />;
   } else if (session.mode === "cloud" && !session.user) {
-    page = <SignIn chrome={chrome} onSignedIn={refresh} />;
+    page = <SignIn chrome={chrome} google={session.google} onSignedIn={refresh} />;
   } else if (session.mode === "cloud" && path === "/link") {
     page = <LinkPage chrome={chrome} />;
   } else {
@@ -204,7 +204,7 @@ function Dashboard({ session, chrome, onSignedOut }: { session: Session; chrome:
         )}
       </div>
       {account && session.mode === "cloud" && session.user && (
-        <AccountDialog user={session.user} chrome={chrome} onClose={() => setAccount(false)} onSignedOut={onSignedOut} />
+        <AccountDialog user={session.user} google={session.google} chrome={chrome} onClose={() => setAccount(false)} onSignedOut={onSignedOut} />
       )}
     </>
   );

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Chrome } from "../App";
 import { api } from "../api/client";
-import type { Device, PasskeyInfo } from "../api/types";
+import type { Device, Identity, PasskeyInfo } from "../api/types";
 import { GlassLayers } from "../components/Panel";
 import { relativeTime } from "../lib/format";
 import { message } from "./Solo";
 
 // The cloud dashboard's account menu: computers signed in to this ledger, passkeys,
 // invitations (admins), signing out.
-export function AccountDialog({ user, chrome, onClose, onSignedOut }: {
+export function AccountDialog({ user, google, chrome, onClose, onSignedOut }: {
   user: { name: string; admin: boolean };
+  google: boolean;
   chrome: Chrome;
   onClose: () => void;
   onSignedOut: () => void;
@@ -18,6 +19,7 @@ export function AccountDialog({ user, chrome, onClose, onSignedOut }: {
   const ref = useRef<HTMLDialogElement>(null);
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [passkeys, setPasskeys] = useState<PasskeyInfo[] | null>(null);
+  const [identities, setIdentities] = useState<Identity[] | null>(null);
   const [invite, setInvite] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +27,7 @@ export function AccountDialog({ user, chrome, onClose, onSignedOut }: {
   const reload = useCallback(() => {
     api.devices().then((d) => setDevices(d.devices)).catch((e) => setError(message(e)));
     api.passkeys().then((p) => setPasskeys(p.passkeys)).catch((e) => setError(message(e)));
+    api.identities().then((i) => setIdentities(i.identities)).catch((e) => setError(message(e)));
   }, []);
   useEffect(() => {
     ref.current?.showModal();
@@ -79,8 +82,18 @@ export function AccountDialog({ user, chrome, onClose, onSignedOut }: {
       </section>
 
       <section className="acct-sec">
-        <h3 className="lab">{t.cloud.passkeys}</h3>
+        <h3 className="lab">{t.cloud.methods}</h3>
         <ul className="acct-list">
+          {identities?.map((g) => (
+            <li key={`${g.provider}/${g.email}`}>
+              <span className="nm">
+                <b>Google</b>
+                <small>
+                  {g.email ?? "—"} · {t.cloud.passkeyAdded(relativeTime(g.created_at, lang))}
+                </small>
+              </span>
+            </li>
+          ))}
           {passkeys?.map((p, i) => (
             <li key={p.id}>
               <span className="nm">
@@ -90,7 +103,7 @@ export function AccountDialog({ user, chrome, onClose, onSignedOut }: {
                   {p.last_used_at ? ` · ${relativeTime(p.last_used_at, lang)}` : ""}
                 </small>
               </span>
-              {passkeys.length > 1 && (
+              {passkeys.length + (identities?.length ?? 0) > 1 && (
                 <button className="btn-quiet" onClick={() => run(() => api.removePasskey(p.id))}>
                   {t.cloud.remove}
                 </button>
@@ -98,9 +111,15 @@ export function AccountDialog({ user, chrome, onClose, onSignedOut }: {
             </li>
           ))}
         </ul>
-        <button className="btn-quiet" onClick={() => run(() => api.addPasskey())}>
-          + {t.cloud.addPasskey}
-        </button>
+        {google ? (
+          <button className="btn-quiet" onClick={() => run(() => api.google())}>
+            + {t.cloud.linkGoogle}
+          </button>
+        ) : (
+          <button className="btn-quiet" onClick={() => run(() => api.addPasskey())}>
+            + {t.cloud.addPasskey}
+          </button>
+        )}
       </section>
 
       {user.admin && (

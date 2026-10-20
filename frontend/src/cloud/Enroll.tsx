@@ -6,30 +6,36 @@ import { Solo, message } from "./Solo";
 export type EnrollKind = "setup" | "join" | "recover";
 
 // /setup#code, /join#code, /recover#code: create the first account, accept an invitation, or
-// add a passkey to an account that lost its own. The code stays in the address's fragment,
-// which browsers never send to the server.
-export function Enroll({ kind, setupNeeded, chrome }: { kind: EnrollKind; setupNeeded: boolean; chrome: Chrome }) {
+// add a way to sign in to an account that lost its own. Google when the deployment has it, a
+// passkey otherwise (or as the other way). The code stays in the address's fragment, which
+// browsers never send to the server.
+export function Enroll({ kind, setupNeeded, google, chrome }: { kind: EnrollKind; setupNeeded: boolean; google: boolean; chrome: Chrome }) {
   const { t } = chrome;
   const code = decodeURIComponent(window.location.hash.slice(1));
   const [name, setName] = useState("");
+  const [passkey, setPasskey] = useState(!google);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(code ? null : t.cloud.noCode);
   const needsName = kind !== "recover";
   const title = { setup: t.cloud.setupTitle, join: t.cloud.joinTitle, recover: t.cloud.recoverTitle }[kind];
+  const ready = !busy && !done && !!code && (!needsName || !!name.trim());
 
   const go = async () => {
     setBusy(true);
     setError(null);
     try {
+      if (!passkey) {
+        await api.google(code, needsName ? name.trim() : undefined); // leaves the page
+        return;
+      }
       await api.addPasskey(code, needsName ? name.trim() : undefined);
       setDone(true);
       window.location.replace("/"); // signed in; the code is spent
     } catch (e) {
       setError(message(e) || null);
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   return (
@@ -44,17 +50,22 @@ export function Enroll({ kind, setupNeeded, chrome }: { kind: EnrollKind; setupN
             onChange={(e) => setName(e.target.value)}
             placeholder={t.cloud.namePlaceholder}
             maxLength={40}
-            autoComplete="username webauthn"
+            autoComplete={passkey ? "username webauthn" : "nickname"}
             autoFocus
-            onKeyDown={(e) => e.key === "Enter" && name.trim() && !busy && go()}
+            onKeyDown={(e) => e.key === "Enter" && ready && go()}
           />
         </label>
       )}
-      <button className="cap solo-go" onClick={go} disabled={busy || !code || (needsName && !name.trim()) || done}>
+      <button className="cap solo-go" onClick={go} disabled={!ready}>
         <span className="cap-glyph">{busy ? "◌" : "▶"}</span>
-        {done ? t.cloud.done : t.cloud.create}
+        {done ? t.cloud.done : passkey ? t.cloud.create : t.cloud.createGoogle}
       </button>
-      <p className="solo-note">{t.cloud.signInHint}</p>
+      <p className="solo-note">{passkey ? t.cloud.signInHint : t.cloud.googleEnrollHint}</p>
+      {google && (
+        <button className="link-quiet" onClick={() => setPasskey(!passkey)}>
+          {passkey ? t.cloud.createGoogle : t.cloud.usePasskey}
+        </button>
+      )}
       {error && <p className="solo-err">{error}</p>}
     </Solo>
   );

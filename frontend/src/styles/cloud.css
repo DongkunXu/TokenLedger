@@ -191,3 +191,20 @@
     margin-bottom: 6vh;
   }
 }
+
+.link-quiet {
+  all: unset;
+  cursor: pointer;
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  border-bottom: 1px dotted var(--line-3);
+}
+.link-quiet:hover {
+  color: var(--ink);
+}
+.link-quiet:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}

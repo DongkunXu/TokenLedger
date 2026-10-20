@@ -1,13 +1,14 @@
 // TokenLedger cloud ledger: a Cloudflare Worker with a D1 database.
 //
 // * machines sign in and share their snapshots and dashboard (sync.ts)
-// * people sign in with passkeys and read their dashboard (auth.ts, sync.ts)
+// * people sign in with Google or passkeys and read their dashboard (google.ts, auth.ts, sync.ts)
 // * everything else is the dashboard's static files (the same build as the local one)
 //
 // Every response carries strict security headers. Requests that change something with a
 // session cookie must come from this origin; machines use bearer tokens instead.
 
 import { routeAuth } from "./auth";
+import { CALLBACK, routeGoogle } from "./google";
 import { routeSync } from "./sync";
 import { type Env, HttpError, json } from "./util";
 
@@ -32,11 +33,14 @@ function secured(response: Response): Response {
 
 async function api(request: Request, env: Env, url: URL): Promise<Response> {
   const changing = !["GET", "HEAD", "OPTIONS"].includes(request.method);
-  if (changing && request.headers.has("Cookie") && request.headers.get("Origin") !== url.origin) {
+  // Google's answer is a cross-site POST by design; it is bound to its sign-in by state, cookie and nonce.
+  const crossSiteAllowed = url.pathname === CALLBACK;
+  if (changing && !crossSiteAllowed && request.headers.has("Cookie") && request.headers.get("Origin") !== url.origin) {
     throw new HttpError(403, "cross-site request refused");
   }
   return (
     (await routeAuth(request, env, url.pathname)) ??
+    (await routeGoogle(request, env, url.pathname)) ??
     (await routeSync(request, env, url.pathname)) ??
     json({ error: "not found" }, 404)
   );
