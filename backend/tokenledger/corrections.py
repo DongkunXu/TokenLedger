@@ -18,6 +18,7 @@ from . import ledger, rawstore
 from .config import Paths, Settings
 from .models import DayUsage
 from .sources import SourceContext
+from .sources.claude_logs import parse_logs_export as parse_claude_export
 from .sources.codex_logs import parse_logs_export
 from .sources.codex_server import parse_usage_response
 from .sources.codexbar import parse_cost_export
@@ -31,6 +32,8 @@ def _rows_from_capture(paths: Paths, settings: Settings, capture: sqlite3.Row, p
         return result.rows if result else []
     if capture["source"] == "codex-logs":
         return parse_logs_export(raw, ctx=SourceContext(settings, now)).rows
+    if capture["source"] == "claude-logs":
+        return parse_claude_export(raw, ctx=SourceContext(settings, now)).rows
     if capture["source"] == "codex-server":
         return parse_usage_response(json.loads(raw), raw=raw, tool_version="archived").rows
     raise ValueError(f"no parser for source {capture['source']!r}")
@@ -44,6 +47,12 @@ def accept_revision(
         raise ValueError(f"revision {revision_id} not found")
     if rev["kind"] != "changed":
         raise ValueError(f"revision {revision_id} is '{rev['kind']}'; only 'changed' revisions can be accepted")
+    if rev["sync_ref"]:
+        machine = rev["sync_ref"].rsplit(":", 1)[0]
+        raise ValueError(
+            f"revision {revision_id} came from machine {machine}, which keeps the raw capture; "
+            "accept it there and the change reaches this ledger with its next push"
+        )
     capture = conn.execute("SELECT * FROM captures WHERE id=?", (rev["capture_id"],)).fetchone()
     if capture is None or not capture["raw_path"]:
         raise ValueError(f"revision {revision_id} has no archived capture to rebuild the row from")

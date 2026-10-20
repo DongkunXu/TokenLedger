@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -147,7 +148,7 @@ def join(
                 f"the hub buckets days in {info['timezone']} and this machine in {settings.timezone}, and this "
                 "ledger already has days in it. Set the same timezone in data/settings.json on both machines"
             )
-        save_settings(paths, Settings(timezone=info["timezone"], grace_days=settings.grace_days, machine=settings.machine))
+        save_settings(paths, replace(settings, timezone=info["timezone"]))
         adopted_timezone = True
 
     cfg = sync_config.SyncConfig(

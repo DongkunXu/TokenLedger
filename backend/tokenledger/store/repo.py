@@ -196,3 +196,42 @@ def insert_quota_samples(conn: sqlite3.Connection, samples: list[QuotaSample]) -
         ],
     )
     return conn.total_changes - before
+
+
+def find_series(conn: sqlite3.Connection, key: SeriesKey) -> int | None:
+    row = conn.execute(
+        "SELECT id FROM series WHERE source=? AND provider=? AND machine=? AND scope=?",
+        (key.source, key.provider, key.machine, str(key.scope)),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def merge_series(conn: sqlite3.Connection, from_sid: int, into_sid: int, now: str) -> dict:
+    """Fold one series into another that holds the same data under a new name.
+
+    Rows the target lacks move over as they are. Where both have a row, the target's is
+    kept and the other's value is recorded as a ``replaced`` revision, so nothing is lost.
+    Revisions and captures follow; the emptied series is removed. Call inside a transaction.
+    """
+    moved = kept = 0
+    for row in conn.execute("SELECT * FROM ledger WHERE series_id=?", (from_sid,)).fetchall():
+        held = ledger_row(conn, into_sid, row["day"], row["model"])
+        if held is None:
+            conn.execute(
+                "UPDATE ledger SET series_id=? WHERE series_id=? AND day=? AND model=?",
+                (into_sid, from_sid, row["day"], row["model"]),
+            )
+            moved += 1
+            continue
+        if row_values(held) != row_values(row):
+            add_revision(
+                conn, into_sid, row["day"], row["model"], kind="replaced", now=now, capture_id=None,
+                origin=row["origin"], observed_total=held["total"], observed_cost=held["cost_micros"],
+                ledger_total=row["total"], ledger_cost=row["cost_micros"],
+            )
+        conn.execute("DELETE FROM ledger WHERE series_id=? AND day=? AND model=?", (from_sid, row["day"], row["model"]))
+        kept += 1
+    conn.execute("UPDATE revisions SET series_id=? WHERE series_id=?", (into_sid, from_sid))
+    conn.execute("UPDATE captures SET series_id=? WHERE series_id=?", (into_sid, from_sid))
+    conn.execute("DELETE FROM series WHERE id=?", (from_sid,))
+    return {"moved": moved, "kept_target": kept}

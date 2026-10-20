@@ -16,6 +16,8 @@ from typing import Callable
 from . import ledger, rawstore
 from .config import Paths, Settings
 from .sources import QuotaSource, SourceContext, SourceError, UsageSource
+from .models import Scope, SeriesKey
+from .sources.codex_server import LEGACY_ACCOUNT
 from .store import repo
 
 Clock = Callable[[], datetime]
@@ -71,6 +73,7 @@ def _run_usage(conn, paths: Paths, settings: Settings, source: UsageSource, cloc
         raw_path = rawstore.write(paths.raw, source.id, result.raw_name, now, result.raw)
         try:
             with repo.transaction(conn):
+                adopted = _adopt_legacy_account(conn, result.series, ledger.iso(now))
                 sid = repo.series_id(conn, result.series)
                 cid = repo.start_capture(conn, "usage", source.id, sid, ledger.iso(now))
                 stats = ledger.apply_capture(conn, result, settings=settings, now_utc=now, capture_id=cid)
@@ -81,7 +84,7 @@ def _run_usage(conn, paths: Paths, settings: Settings, source: UsageSource, cloc
                     status="ok",
                     tool_version=result.tool_version,
                     raw_path=str(raw_path.relative_to(paths.data)),
-                    stats={**stats.as_dict(), "rows": len(result.rows), **_meta(result.meta)},
+                    stats={**stats.as_dict(), "rows": len(result.rows), **_meta(result.meta), **adopted},
                 )
         except Exception as exc:  # noqa: BLE001
             raw_path.unlink(missing_ok=True)
@@ -92,6 +95,18 @@ def _run_usage(conn, paths: Paths, settings: Settings, source: UsageSource, cloc
             continue
         outcome.series.append({"provider": result.series.provider, "scope": str(result.series.scope), **stats.as_dict()})
     return outcome
+
+
+def _adopt_legacy_account(conn: sqlite3.Connection, series: SeriesKey, now: str) -> dict:
+    """The first capture that knows which account a ledger's unnamed ``account`` series
+    belongs to folds it into that account's series (see sources/codex_server.py)."""
+    if series.scope != Scope.ACCOUNT or series.machine == LEGACY_ACCOUNT:
+        return {}
+    legacy = repo.find_series(conn, SeriesKey(series.source, series.provider, LEGACY_ACCOUNT, Scope.ACCOUNT))
+    if legacy is None:
+        return {}
+    merged = repo.merge_series(conn, legacy, repo.series_id(conn, series), now)
+    return {"adopted_legacy_account": merged}
 
 
 def _run_quota(conn, settings: Settings, source: QuotaSource, clock: Clock) -> Outcome:
