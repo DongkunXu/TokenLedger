@@ -33,12 +33,50 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
         raise
 
 
+def meta_get(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value)
+    )
+
+
 def ensure_machine(conn: sqlite3.Connection, machine: Machine, now: str) -> None:
     conn.execute(
         "INSERT INTO machines(id, label, os, first_seen_at) VALUES(?, ?, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET label=excluded.label, os=excluded.os",
         (machine.id, machine.label, machine.os, now),
     )
+
+
+def accounts_read(conn: sqlite3.Connection, legacy: str) -> list[list[str]]:
+    """``[provider, account]`` of every account-wide series this machine has read itself
+    (``legacy``: the unnamed series of older ledgers, left out)."""
+    rows = conn.execute(
+        "SELECT DISTINCT s.provider, s.machine FROM captures c JOIN series s ON s.id = c.series_id "
+        "WHERE c.machine IS NULL AND c.status = 'ok' AND s.scope = 'account' AND s.machine != ? "
+        "ORDER BY s.provider, s.machine",
+        (legacy,),
+    ).fetchall()
+    return [[r["provider"], r["machine"]] for r in rows]
+
+
+def set_machine_accounts(conn: sqlite3.Connection, machine: str, accounts: list[list[str]]) -> None:
+    conn.execute("UPDATE machines SET accounts=? WHERE id=?", (json.dumps(accounts), machine))
+
+
+def account_folds(conn: sqlite3.Connection) -> list[list[str]]:
+    """``[source, provider, from, into]``: account series this ledger folded into another name."""
+    return json.loads(meta_get(conn, "account_folds") or "[]")
+
+
+def add_account_fold(conn: sqlite3.Connection, source: str, provider: str, old: str, new: str) -> None:
+    folds = account_folds(conn)
+    if [source, provider, old, new] not in folds:
+        meta_set(conn, "account_folds", json.dumps([*folds, [source, provider, old, new]]))
 
 
 def series_id(conn: sqlite3.Connection, key: SeriesKey) -> int:
@@ -196,3 +234,42 @@ def insert_quota_samples(conn: sqlite3.Connection, samples: list[QuotaSample]) -
         ],
     )
     return conn.total_changes - before
+
+
+def find_series(conn: sqlite3.Connection, key: SeriesKey) -> int | None:
+    row = conn.execute(
+        "SELECT id FROM series WHERE source=? AND provider=? AND machine=? AND scope=?",
+        (key.source, key.provider, key.machine, str(key.scope)),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def merge_series(conn: sqlite3.Connection, from_sid: int, into_sid: int, now: str) -> dict:
+    """Fold one series into another that holds the same data under a new name.
+
+    Rows the target lacks move over as they are. Where both have a row, the target's is
+    kept and the other's value is recorded as a ``replaced`` revision, so nothing is lost.
+    Revisions and captures follow; the emptied series is removed. Call inside a transaction.
+    """
+    moved = kept = 0
+    for row in conn.execute("SELECT * FROM ledger WHERE series_id=?", (from_sid,)).fetchall():
+        held = ledger_row(conn, into_sid, row["day"], row["model"])
+        if held is None:
+            conn.execute(
+                "UPDATE ledger SET series_id=? WHERE series_id=? AND day=? AND model=?",
+                (into_sid, from_sid, row["day"], row["model"]),
+            )
+            moved += 1
+            continue
+        if row_values(held) != row_values(row):
+            add_revision(
+                conn, into_sid, row["day"], row["model"], kind="replaced", now=now, capture_id=None,
+                origin=row["origin"], observed_total=held["total"], observed_cost=held["cost_micros"],
+                ledger_total=row["total"], ledger_cost=row["cost_micros"],
+            )
+        conn.execute("DELETE FROM ledger WHERE series_id=? AND day=? AND model=?", (from_sid, row["day"], row["model"]))
+        kept += 1
+    conn.execute("UPDATE revisions SET series_id=? WHERE series_id=?", (into_sid, from_sid))
+    conn.execute("UPDATE captures SET series_id=? WHERE series_id=?", (into_sid, from_sid))
+    conn.execute("DELETE FROM series WHERE id=?", (from_sid,))
+    return {"moved": moved, "kept_target": kept}

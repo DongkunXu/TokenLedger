@@ -104,6 +104,25 @@ MIGRATIONS: list[str] = [
     UPDATE ledger SET state = 'final', finalized_at = strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')
     WHERE state = 'open' AND series_id IN (SELECT id FROM series WHERE source = 'codexbar' AND provider = 'codex');
     """,
+    # 3: several machines in one ledger (sync, ``sync/``). Rows other machines sent keep
+    # their machine: ``captures.machine`` and ``quota_samples.machine`` are NULL for this
+    # machine's own, and captures and revisions keep a reference to their id there
+    # (``sync_ref`` = "<machine>:<instance>:<id>") so applying the same data twice adds
+    # nothing. ``meta.instance`` tells this ledger apart from a recreated one on the
+    # same machine.
+    """
+    ALTER TABLE captures ADD COLUMN machine TEXT;
+    ALTER TABLE captures ADD COLUMN sync_ref TEXT;
+    CREATE UNIQUE INDEX captures_sync_ref_idx ON captures(sync_ref) WHERE sync_ref IS NOT NULL;
+    ALTER TABLE revisions ADD COLUMN sync_ref TEXT;
+    CREATE UNIQUE INDEX revisions_sync_ref_idx ON revisions(sync_ref) WHERE sync_ref IS NOT NULL;
+    ALTER TABLE quota_samples ADD COLUMN machine TEXT;
+    ALTER TABLE machines ADD COLUMN app_version TEXT;
+    ALTER TABLE machines ADD COLUMN accounts TEXT;
+    ALTER TABLE machines ADD COLUMN snapshot_at TEXT;
+    ALTER TABLE machines ADD COLUMN synced_at TEXT;
+    INSERT OR IGNORE INTO meta(key, value) VALUES('instance', lower(hex(randomblob(16))));
+    """,
 ]
 
 

@@ -29,7 +29,20 @@ def cmd_capture(args) -> int:
         quota = [s for s in quota if s.id in wanted]
     outcomes = capture.run(conn, paths, settings, usage_sources=usage, quota_sources=quota)
     print(json.dumps([o.as_dict() for o in outcomes], indent=2))
+    from .sync.client import after_capture
+
+    synced = after_capture(conn, paths, settings)
+    if synced is not None:  # a failed sync is reported but does not fail the capture: the data stays here
+        print(_sync_line(synced), file=sys.stderr)
     return 0 if all(o.ok for o in outcomes) else 1
+
+
+def _sync_line(result: dict) -> str:
+    if not result["ok"]:
+        return f"sync: failed: {result.get('error') or 'another sync is running'}"
+    merged = ", ".join(m["machine"] for m in result["merged"]) or "nothing new"
+    restored = " (restored this machine's settled days from the cloud first)" if result.get("restored") else ""
+    return f"sync: shared this machine's data, merged from other machines: {merged}{restored}"
 
 
 def cmd_backfill(args) -> int:
@@ -57,7 +70,7 @@ def cmd_status(args) -> int:
 def cmd_serve(args) -> int:
     from .api.server import serve
 
-    serve(host=args.host, port=args.port, open_browser=args.open, idle_hours=args.idle_hours)
+    serve(host=args.host, port=args.port, open_browser=args.open)
     return 0
 
 
@@ -66,15 +79,14 @@ def cmd_dashboard(args) -> int:
 
     try:
         port = args.port if args.port is not None else dashboard.DEFAULT_PORT
-        idle = args.idle_hours if args.idle_hours is not None else dashboard.DEFAULT_IDLE_HOURS
         if args.action == "start":
-            result = dashboard.start(port=port, idle_hours=idle, open_browser=args.open)
+            result = dashboard.start(port=port, open_browser=args.open)
         elif args.action == "stop":
             result = dashboard.stop()
         elif args.action == "restart":
-            result = dashboard.restart(port=args.port, idle_hours=args.idle_hours, open_browser=args.open)
+            result = dashboard.restart(port=args.port, open_browser=args.open)
         elif args.action == "open":
-            result = dashboard.start(port=port, idle_hours=idle, open_browser=True)
+            result = dashboard.start(port=port, open_browser=True)
         elif args.action == "logs":
             print(dashboard.log_path().read_text() if dashboard.log_path().exists() else "(no log yet)", end="")
             return 0
@@ -85,6 +97,34 @@ def cmd_dashboard(args) -> int:
         return 1
     print(json.dumps(result, indent=2))
     return 0
+
+
+def cmd_sync(args) -> int:
+    from .sync import client
+    from .sync import config as sync_config
+
+    paths, settings, conn = _open()
+    try:
+        if args.action == "status":
+            result = client.status(paths)
+        elif args.action == "login":
+            if not args.url:
+                raise client.SyncError("pass the cloud ledger's address, e.g. `tokenledger sync login https://tokens.example.com`")
+            result = client.login(conn, paths, settings, args.url, open_browser=not args.no_browser,
+                                  say=lambda line: print(line, file=sys.stderr))
+            result["sync"] = client.sync(conn, paths, load_settings(paths))
+            if result["adopted"]:
+                print("note: this machine took the cloud ledger's timezone; restart a running dashboard "
+                      "(scripts/dashboard.sh restart)", file=sys.stderr)
+        elif args.action == "now":
+            result = client.sync(conn, paths, settings)
+        else:
+            result = client.logout(conn, paths)
+    except (client.SyncError, sync_config.SyncConfigError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2))
+    return 0 if result.get("ok", True) and result.get("sync", {}).get("ok", True) else 1
 
 
 def cmd_mcp(args) -> int:
@@ -117,15 +157,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--open", action="store_true", help="open the dashboard in the browser")
-    p.add_argument("--idle-hours", type=float, default=12.0, help="stop after this long without requests (0 = never)")
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("dashboard", help="manage the dashboard server in the background")
     p.add_argument("action", choices=["start", "stop", "restart", "status", "open", "logs"])
     p.add_argument("--port", type=int, default=None, help="default 8765 (restart keeps the current port)")
-    p.add_argument("--idle-hours", type=float, default=None, help="default 12 (restart keeps the current value)")
     p.add_argument("--open", action="store_true", help="open the dashboard in the browser")
     p.set_defaults(func=cmd_dashboard)
+
+    p = sub.add_parser("sync", help="several machines, one ledger: sign in to a cloud ledger and sync with it")
+    p.add_argument("action", choices=["status", "login", "now", "logout"])
+    p.add_argument("url", nargs="?", help="login: the cloud ledger's address, e.g. https://tokens.example.com")
+    p.add_argument("--no-browser", action="store_true", help="login: print the approval link without opening it")
+    p.set_defaults(func=cmd_sync)
 
     p = sub.add_parser("mcp", help="run the MCP server on stdio")
     p.set_defaults(func=cmd_mcp)

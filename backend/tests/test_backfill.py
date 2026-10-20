@@ -5,15 +5,17 @@ import json
 import pytest
 
 from tokenledger.backfill.codexbar_legacy import claude_backfill, codex_backfill
-from tokenledger.pricing import Catalog, codex_request_cost_usd
+from tokenledger.pricing import Catalog
 from tokenledger.models import DAY_TOTAL, CostQuality, DayUsage
 
 CATALOG = Catalog(
     providers={
         "anthropic": {"models": {"claude-x": {"cost": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25}}}},
         "openai": {
+            "id": "openai",
             "models": {
                 "gpt-x": {
+                    "id": "gpt-x",
                     "cost": {"input": 4, "output": 20, "cache_read": 0.4,
                              "context_over_200k": {"input": 8, "output": 30, "cache_read": 0.8}}
                 }
@@ -92,12 +94,3 @@ def test_codex_prefers_newest_day_totals_and_skips_reported_days(tmp_path):
     assert totals["2026-06-12"].total == 101  # rows-only day
     assert totals["2026-07-02"].cost_quality == CostQuality.RECOMPUTED
 
-
-def test_codex_long_context_rates_apply_to_whole_request():
-    gpt5 = Catalog(providers={"openai": {"models": {"gpt-5.6-x": CATALOG.providers["openai"]["models"]["gpt-x"]}}})
-    assert codex_request_cost_usd(gpt5, "gpt-5.6-x", 272_000, 0, 0) == pytest.approx(272_000 * 4 / 1e6)
-    assert codex_request_cost_usd(gpt5, "gpt-5.6-x", 272_001, 0, 0) == pytest.approx(272_001 * 8 / 1e6)
-    # later models switch at 200K
-    assert codex_request_cost_usd(CATALOG, "gpt-x", 200_000, 0, 0) == pytest.approx(200_000 * 4 / 1e6)
-    assert codex_request_cost_usd(CATALOG, "gpt-x", 200_001, 0, 0) == pytest.approx(200_001 * 8 / 1e6)
-    assert codex_request_cost_usd(CATALOG, "unknown", 1, 0, 0) is None

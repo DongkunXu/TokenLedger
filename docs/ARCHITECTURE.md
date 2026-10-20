@@ -1,6 +1,6 @@
 # TokenLedger architecture
 
-TokenLedger is an append-only ledger of AI usage. It reads daily token counts and estimated cost from CodexBar, the Codex logs on this Mac and the Codex server, and writes them into a local database. Once a day's grace period is over the day is final; if a source later shrinks or loses that day, the ledger keeps what it had.
+TokenLedger is an append-only ledger of AI usage. It reads daily token counts and estimated cost from CodexBar (on a Mac), the Claude Code and Codex logs on the machine and the Codex server, and writes them into a local database. Several machines can share one ledger through a cloud ledger on Cloudflare (see [MULTI_MACHINE.md](MULTI_MACHINE.md)). Once a day's grace period is over the day is final; if a source later shrinks or loses that day, the ledger keeps what it had.
 
 ## Layout
 
@@ -8,7 +8,9 @@ TokenLedger is an append-only ledger of AI usage. It reads daily token counts an
 TokenLedger/
 ├── backend/                 Python package tokenledger (managed with uv)
 │   ├── tokenledger/
-│   │   ├── config.py        Paths, timezone, grace period, machine id (data/settings.json)
+│   │   ├── config.py        Paths, timezone, grace period, machine id, WSL mode (data/settings.json)
+│   │   ├── homes.py         Where Claude Code and Codex keep their logs on this computer (incl. WSL)
+│   │   ├── catalog.py       models.dev price catalog: CodexBar's, or an own copy built the same way
 │   │   ├── models.py        Core types: DayUsage, SeriesKey, CaptureResult, QuotaSample
 │   │   ├── store/           SQLite connection and migrations (db.py), row access (repo.py)
 │   │   ├── ledger.py        Settling rules: write, freeze, revisions
@@ -16,24 +18,29 @@ TokenLedger/
 │   │   ├── rawstore.py      gzip archive of raw output
 │   │   ├── sources/         Data source adapters (one interface)
 │   │   ├── backfill/        One-off backfill from old CodexBar caches
-│   │   ├── pricing.py       List-price cost, using CodexBar's price table and rules
+│   │   ├── pricing.py       List-price cost, using CodexBar's price table and rules (Codex and Claude)
 │   │   ├── corrections.py   Adopting a source's new value by hand
 │   │   ├── views.py         Queries and summaries for the API and MCP
-│   │   ├── api/             FastAPI: JSON API + the built frontend
+│   │   ├── api/             FastAPI: JSON API + the built frontend; server.py runs the dashboard server
+│   │   ├── dashboard.py     The dashboard server in the background, on macOS, Linux and Windows
+│   │   ├── sync/            Several machines: the cloud sign-in (config.py), snapshots (build, merge,
+│   │   │                    restore), the sync client
 │   │   ├── mcp_server.py    MCP tools
 │   │   └── cli.py           Command line entry point
 │   └── tests/
 ├── frontend/                Vite + React + TypeScript; every chart is hand-written SVG
 │   └── src/
 │       ├── api/             API types and requests
-│       ├── panels/          The eight panels (00 Total … 07 Sources)
+│       ├── panels/          The nine panels (00 Total … 08 Sources)
+│       ├── cloud/           Cloud dashboard pages: passkey sign-in, accounts, approving a computer
 │       ├── components/      Panel frame, rail, top bar, toggles, pixel meters, tooltips, fun equivalents
 │       ├── i18n/strings.ts  Every UI string (Chinese / English)
 │       ├── theme/           Light and dark design tokens, theme switching
-│       ├── styles/          Page frame (app.css) and panel internals (panels.css)
+│       ├── styles/          Page frame (app.css), panel internals (panels.css), cloud pages (cloud.css)
 │       ├── assets/bg.jpg    Background (made by scripts/grade-background.py)
 │       └── lib/             Formatting, data shaping, sizing and motion, fun equivalents table (fun.ts)
-├── scripts/                 Every build, test and run goes through these
+├── cloud/                   The cloud ledger: a Cloudflare Worker (src/) and its D1 schema (migrations/)
+├── scripts/                 Every build, test and run goes through these (.sh; .ps1 on Windows)
 ├── data/                    Ledger data (ignored by git)
 ├── docs/                    This file, README images and logo
 └── research/                Data source investigation
@@ -43,11 +50,12 @@ TokenLedger/
 
 ```
 CodexBar CLI ────────┐
+Claude Code logs ────┤
 Codex logs ──────────┤
 Codex server ────────┼─> sources/*  ─> CaptureResult ─> ledger.apply_capture() ─> SQLite ─> views ─> API / MCP ─> frontend
-CodexBar quota hist. ┘                     │
-                                          └─> data/raw/ raw output archive
-Old CodexBar caches ─> backfill/ ─> ledger.apply_backfill()
+CodexBar quota hist. ┘                     │                                        │  ▲
+                                          └─> data/raw/ raw output archive          │  └─ sync: snapshot.apply() ← other machines' snapshots
+Old CodexBar caches ─> backfill/ ─> ledger.apply_backfill()                         └─> sync: snapshot.build() → cloud ledger → other machines
 ```
 
 ## Source interface
@@ -70,19 +78,20 @@ A series is identified by four fields:
 
 | Field | Examples |
 |---|---|
-| source | `codexbar`, `codex-logs`, `codex-server`, a future `claude-logs` |
+| source | `codexbar`, `claude-logs`, `codex-logs`, `codex-server` |
 | provider | `claude`, `codex`, `antigravity` |
-| machine | This Mac's id; `account` for account-wide data |
+| machine | The id of the machine whose logs these are; for account-wide data the account (`acct-<hash of the email>`; `account` in ledgers from before accounts were told apart) |
 | scope | `machine` (local logs) or `account` (the whole account) |
 
 Current sources:
 
 | id | Reads | Notes |
 |---|---|---|
-| `codexbar` | `codexbar cost --provider <p> --days 365 --format json` for `claude` and `antigravity` | `CODEX_HOME` and `CLAUDE_CONFIG_DIR` are removed from the environment first: CodexBar keeps a single shared cache, and running its CLI against other folders rewrites the menu-bar app's cache. Fails when the ledger timezone differs from CodexBar's. Read Codex too before 2026-10-04, see below |
-| `codex-logs` | `~/.codex/sessions/**/*.jsonl` and `~/.codex/archived_sessions/*.jsonl`, read only; prices from CodexBar's cached table `~/Library/Caches/CodexBar/model-pricing/models-dev-v1.json` | Each request is counted once, rules below. The archived raw output is the per-day, per-model summary, which `accept` rebuilds rows from. Fails when the price table is missing |
-| `codex-server` | Starts the Codex CLI in `app-server` mode and sends `initialize` and the read-only `account/usage/read`. The CLI is looked up in the ChatGPT app (`Contents/Resources/codex-cli/bin/codex`, earlier `Contents/Resources/codex`), then as `codex` on PATH | Daily token totals only; the server's day boundary looks like UTC. If a ChatGPT update moves the CLI again, the capture fails and lists the paths it tried; add the new one to `BINARY_CANDIDATES` |
-| `codexbar-quota` | `~/Library/Application Support/com.steipete.codexbar/history/*.json`, read only | CodexBar compacts this history; the ledger keeps every sample it has seen |
+| `codexbar` | `codexbar cost --provider <p> --days 365 --format json` for `claude` and `antigravity`. Runs on macOS, and on Linux when the CLI is installed | `CODEX_HOME` and `CLAUDE_CONFIG_DIR` are removed from the environment first: CodexBar keeps a single shared cache, and running its CLI against other folders rewrites the menu-bar app's cache. Fails when the ledger timezone differs from CodexBar's. Read Codex too before 2026-10-04, see below |
+| `claude-logs` | Every Claude Code log on this computer (`homes.claude_log_roots`: `CLAUDE_CONFIG_DIR`, `~/.config/claude/projects`, `~/.claude/projects`, claude-swap profiles, the desktop app's agent sessions, WSL), read only | CodexBar's rules, below. On a Mac CodexBar's Claude figures are preferred (`views.MACHINE_SOURCE_ORDER`); this fills days CodexBar lacks |
+| `codex-logs` | `sessions/**/*.jsonl[.zst]` and `archived_sessions/*.jsonl[.zst]` in every Codex home (`CODEX_HOME`, `~/.codex`, WSL), read only; prices from the catalog (`catalog.py`) | Each request is counted once, rules below. Newer Codex compresses logs untouched for a week into `.jsonl.zst`. The archived raw output is the per-day, per-model summary, which `accept` rebuilds rows from |
+| `codex-server` | Starts the Codex CLI in `app-server` mode and sends `initialize`, then the read-only `account/read` and `account/usage/read`. The CLI is looked up in the ChatGPT app (`Contents/Resources/codex-cli/bin/codex`, earlier `Contents/Resources/codex`); on Windows the standalone or npm `codex.exe`; on Linux `~/.local/bin/codex`; then `codex` on PATH | Daily token totals only; the server's day boundary looks like UTC. The series is named after a hash of the account's email, so one account read on several machines is one series and several accounts add up. The first capture that knows the account folds the old `account` series into it (`repo.merge_series`). A machine where Codex never ran reports nothing instead of failing |
+| `codexbar-quota` | `~/Library/Application Support/com.steipete.codexbar/history/*.json`, read only (macOS) | CodexBar compacts this history; the ledger keeps every sample it has seen |
 
 ## Codex logs (codex-logs)
 
@@ -94,6 +103,21 @@ Before 2026-10-04 Codex data for this Mac came from CodexBar. CodexBar counts th
 - The newer records also include requests such as context compaction, so the counts are slightly higher than CodexBar's (1% to 3% a day) and closer to the server's
 
 The CodexBar Codex series is no longer captured; the ledger keeps its history (migration 2 settled its remaining open rows). The dashboard picks per day: `codex-logs` when the logs have that day, otherwise the CodexBar record from back then (`views.MACHINE_SOURCE_ORDER`).
+
+## Claude Code logs (claude-logs)
+
+The rules are CodexBar's (`CostUsageScanner+Claude.swift`, `CostUsagePricing.swift`), so a day counts the same on a Mac with CodexBar and on a machine without it. Checked against a Python port that reproduces CodexBar's own Claude tests, and on real logs (same tokens and cost to the micro-dollar):
+
+- Files: every non-empty `*.jsonl` below each root, in sorted path order; dot-named entries below a root are skipped, symlinked folders are not followed; lines over 512 KiB are skipped. Subagent transcripts (`<session>/subagents/`) are included
+- A request is an `assistant` entry with `message.model`, `message.usage` and a timestamp with a zone. Entries whose four token counts are all zero (`<synthetic>`, API errors) and Vertex AI entries are skipped
+- Deduplication across all files and folders by `message.id` + `requestId` (without `requestId`: session id + `message.id`; without `message.id`: every entry counts). Within a file the last entry of a request wins; between files a complete entry beats a streaming placeholder, then a main session beats a sidechain, then a non-subagent file beats a subagent file, then the first path
+- Model ids are normalized (`anthropic.`/Bedrock prefixes, `-vN:M`, a `-YYYYMMDD` date when the base is in the built-in table); that is also the model name stored
+- Price per request: `claude-opus-4-6` and `claude-sonnet-4-6` always use built-in rates (with a long-context tier before 2026-03-13); otherwise models.dev's `anthropic` provider through CodexBar's id variants; then the built-in table; else unpriced. Missing cache rates fall back to the input rate; `context_over_200k` rates apply to the whole request above the tier size (input + cache reads + cache writes); 1-hour cache writes cost twice the input rate
+- Per day and model the dollars are summed and rounded once. A model whose day has any unpriced request is unpriced for that day and left out of the day's cost
+
+## Price catalog (catalog.py)
+
+CodexBar keeps models.dev's catalog in `~/Library/Caches/CodexBar/model-pricing/models-dev-v1.json` (its Linux CLI under `~/.cache`). Where neither exists, TokenLedger builds the same file in `data/cache/`: fetched from https://models.dev/api.json when older than a day, projected to the fields CodexBar keeps, refused unless Anthropic and OpenAI both have priced models, and merged with the previous file so models models.dev drops keep their price. A failed fetch uses the old copy.
 
 ## Token fields
 
@@ -119,13 +143,13 @@ Each day has a `model = "*"` row with the all-model total (with its parts), plus
 | `revisions` | What a source said about a final day that differs: `changed`, `missing`, and old values replaced by a backfill or by hand (`replaced`) |
 | `captures` | Time, status, tool version, raw archive path, stats and error of every capture and backfill |
 | `quota_samples` | Quota percentage samples |
-| `machines`, `meta` | Machine info, schema version |
+| `machines`, `meta` | Machine info (for another machine also which accounts it reads and when its data was taken and merged), schema version, this ledger's instance id, the time of the last snapshot it shared |
 
-Migrations live in the `MIGRATIONS` list in `store/db.py`; they are only ever appended.
+Migrations live in the `MIGRATIONS` list in `store/db.py`; they are only ever appended. Migration 3 adds what several machines need: `captures.machine` and `quota_samples.machine` (NULL for this machine's own), `sync_ref` on captures and revisions from another machine (so merging the same snapshot twice adds nothing), and the ledger's instance id.
 
 ## Settling rules
 
-- Days are bucketed in the ledger timezone, which must match CodexBar's. On first use it is taken from CodexBar's setting, or from this Mac when CodexBar has none (`data/settings.json`)
+- Days are bucketed in the ledger timezone, which must match CodexBar's. On first use it is taken from CodexBar's setting, or from this machine when CodexBar has none (`data/settings.json`; on Windows through tzlocal and the tzdata package). A machine signing in to a cloud ledger with an empty ledger adopts that ledger's timezone
 - Day D is `open` on D, D+1 and D+2 and every capture overwrites it, smaller values included (a source correcting itself within the grace period)
 - After the grace period, the first capture of a series settles it, judged on the day's all-model row (`model = "*"`):
   - The source's total is not smaller than the ledger's: take all of the source's rows for that day, then freeze. Late usage gets in, and a capture made long after the day does not freeze a half-counted number
@@ -153,7 +177,7 @@ Accuracy does not depend on capture frequency, as long as a capture happens whil
 
 A cost without a basis is left empty, never guessed.
 
-Pricing rules are in `pricing.py`. Codex long context: when a request's input passes the threshold, the whole request is priced at `context_over_200k`. The threshold is 272K for the gpt-5 family and 200K for later models. It was worked out from CodexBar's results; with it, every day and model from 2026-09-13 to 10-03 matches CodexBar's cost (except the overcounted 14 September).
+Pricing rules are in `pricing.py` and follow CodexBar v0.78.0. Codex: models.dev's `openai` entry for the normalised model, filled in from CodexBar's bundled OpenAI table; when a request's input, cached input included, passes the model's threshold, the whole request uses the long-context rates. The threshold is 272K for the models OpenAI prices that way (gpt-5.4/5.5, the gpt-5.6 and gpt-6 families) and 200K otherwise. Auto-review requests of ChatGPT-signed-in sessions are free from 2026-10-06. Claude: the same rules as CodexBar, including other vendors' models routed through Claude Code.
 
 ## Backfill from old caches
 
@@ -168,18 +192,22 @@ Pricing rules are in `pricing.py`. Codex long context: when a request's input pa
 
 ## Dashboard rules (views.py)
 
-- Claude: the local data of every machine, added up
-- Codex: account-wide tokens on days that have them, local data otherwise. The server's data is complete only half a day to a day later, so open days take the larger of the two. Final days use account data only, since the server's day boundary is UTC and mixing it with local data would count usage around midnight twice. Cost only comes from local data; `cost_tokens` tells how many tokens the cost covers
-- When one machine has several local sources for a provider, each day takes the first source in `MACHINE_SOURCE_ORDER` that has the day; sources that are no longer captured (`RETIRED_SOURCES`) do not appear in the source health list
+- Claude: the local data of every machine, added up (CodexBar where it runs, `claude-logs` elsewhere)
+- Codex: account-wide tokens on days that have them (every account added up), local data otherwise. A machine's own logs count through the account it reads; the logs of a machine that reads no account are added on top (`_coverage`). The server's data is complete only half a day to a day later, so open days take the larger of the two. Final days use account data only, since the server's day boundary is UTC and mixing it with local data would count usage around midnight twice. Cost only comes from local data; `cost_tokens` tells how many tokens the cost covers
+- When one machine has several local sources for a provider, each day takes the first source in `MACHINE_SOURCE_ORDER` (`codex-logs`, `codexbar`, `claude-logs`) that has the day; sources that are no longer captured (`RETIRED_SOURCES`) do not appear in the source health list
+- Machines (`machine_usage`): each machine's local data per day, and the account usage none of them logged ("Elsewhere")
+- Source health is per machine and source. A source whose last attempt is more than a day older than that machine's newest capture (no longer run there) is left out
 - Quota peaks: weekly windows are grouped by reset time and take the highest value, skipping windows that stayed at 0% (Codex's weekly window rolls, and when idle every sample says "resets in 7 days"); 5-hour windows take the highest of each local day
 
 ## HTTP API
 
-Listens on 127.0.0.1 only. Everything except `POST /api/capture` is read-only.
+Listens on 127.0.0.1 only, and refuses requests whose Host is not a loopback name (DNS rebinding) and changing requests from another origin. Everything except `POST /api/capture` is read-only.
 
 | Path | Returns |
 |---|---|
-| `GET /api/status` | Machine, timezone, ledger row counts, and each source's latest attempt (`sources`: ok, time, error, last success) |
+| `GET /api/session` | `{"mode": "local"}`; the cloud dashboard answers with the signed-in person |
+| `GET /api/view?range` | Everything one dashboard range (`d30`, `d90`, `d180`, `y1`, `all`) shows: status, summary, daily, models, machines, quota. The dashboard reads only this; the cloud serves the same shape |
+| `GET /api/status` | Machine, timezone, ledger row counts, each source's latest attempt per machine (`sources`: machine, ok, time, error, last success), every machine in the ledger (`machines`), and whether this machine is signed in to a cloud ledger with its last sync (`sync`) |
 | `GET /api/summary?start&end` | Totals per provider, cost coverage, token makeup, peak day, streaks |
 | `GET /api/daily?start&end` | Tokens, cost, quality and open flag per day and provider |
 | `GET /api/models?start&end` | Totals per model (local data) |
@@ -187,7 +215,7 @@ Listens on 127.0.0.1 only. Everything except `POST /api/capture` is read-only.
 | `GET /api/quota/peaks?start&end` | Quota peaks |
 | `GET /api/quota/now` | Latest reading and reset time of every quota window |
 | `GET /api/revisions?limit`, `GET /api/captures?limit` | Revisions and captures |
-| `POST /api/capture` | Capture now |
+| `POST /api/capture` | Capture now (then sync, when signed in to a cloud ledger) |
 
 Interactive docs at `/api/docs`.
 
@@ -201,23 +229,34 @@ The interface follows the browser's language (Chinese or English) until you pick
 
 `index.html` is served with `Cache-Control: no-cache`, so a rebuild shows up on refresh; hashed asset files are cached as usual.
 
-## Dashboard server lifecycle
+The cloud dashboard is the same build. It asks `/api/session` first: signed out, it shows the passkey sign-in; on `/setup`, `/join` and `/recover` it creates an account or adds a passkey; on `/link` it approves a computer. The data comes from `/api/view` as on a local dashboard, published there by the machines.
 
-`tokenledger serve` (`api/server.py`) is the server; `tokenledger dashboard` (`dashboard.py`) manages it:
+## Cloud ledger (cloud/)
+
+A Cloudflare Worker with a D1 database, deployed with `scripts/cloud.sh` (wrangler). It stores and hands out what machines share and never reads it, so it stays far inside the free plan's limits (10 ms CPU per request):
+
+- `src/auth.ts`: people. Passkeys (SimpleWebAuthn), 30-day sessions in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie, one-time codes for the first account, invitations and recovery
+- `src/sync.ts`: machines. Signing in (`/api/link/start`, approve on the web, `/api/link/poll` hands the device token over once); the snapshot list, each machine's snapshot, the dashboard per range (`/api/sync/*`, bearer token, checked against the machine id, ledger instance and computer); devices seen by their owner; `/api/view` for the signed-in person
+- `src/index.ts`: routing, the static files, security headers on every response, and refusing changing cookie requests from another origin
+- `migrations/`: the D1 schema. Secrets are stored as SHA-256 hashes; bytes are split into parts below D1's row size limit
+
+## Server lifecycle
+
+`api/server.py` runs the dashboard server with a controlled lifecycle; `dashboard.py` manages it in the background. Process checks use psutil, so this works the same on macOS, Linux and Windows; on Windows, where there is no SIGTERM for another process, `stop` posts to a loopback-only shutdown path with a random token from the state file.
 
 - `dashboard start` launches the server in its own session (`start_new_session`), detached from the terminal that started it, and returns once `/api/status` answers. Only one runs at a time; a port taken by another program is an error
-- On start the server writes `.build/run/dashboard.json` (pid, port, start time, idle limit) and removes it on exit. The management commands find the server through it and first check that the pid really is a TokenLedger server before sending signals; a state file left by a crash is detected and removed
-- Every exit is graceful: SIGTERM (`dashboard stop`), Ctrl+C, SIGHUP (its terminal closed), idle timeout. uvicorn re-raises SIGINT/SIGTERM after handling them, so the server installs Python-level handlers first to make sure cleanup and logging finish. `stop` force-kills only after 10 seconds
-- Idle time is wall-clock time and counts only page and API requests; the health check of `dashboard status` sends an `X-TokenLedger-Probe` header and does not count, or checking the status would keep it alive forever
+- On start the server writes `.build/run/dashboard.json` (pid, port, start time, shutdown token) and removes it on exit. The management commands find the server through it and first check that the pid really is a TokenLedger server before sending signals; a state file left by a crash is detected and removed
+- It runs until it is told to stop. Every exit is graceful: SIGTERM (`dashboard stop`), Ctrl+C, SIGHUP (its terminal closed). uvicorn re-raises SIGINT/SIGTERM after handling them, so the server installs Python-level handlers first to make sure cleanup and logging finish. `stop` force-kills only after 10 seconds
+- When the machine is signed in to a cloud ledger, a background thread syncs every 10 minutes (skipping a round while another process syncs)
 - The log is `.build/run/dashboard.log`, overwritten on every start, so only the latest run is kept
 
 ## MCP tools
 
-`scripts/mcp.sh` serves over stdio: `ledger_status`, `usage_summary`, `daily_usage`, `model_breakdown`, `quota_history`, `quota_peaks`, `quota_now`, `list_revisions`, `list_captures`, `dashboard_status` (read only), `run_capture`, `accept_revision` (write to the ledger), and `dashboard_start`, `dashboard_stop` (control the dashboard server).
+`scripts/mcp.sh` serves over stdio: `ledger_status`, `usage_summary`, `daily_usage`, `model_breakdown`, `quota_history`, `quota_peaks`, `quota_now`, `list_revisions`, `list_captures`, `dashboard_status` (read only), `machine_usage` (read only), `run_capture`, `accept_revision`, `sync_now` (write to the ledger, or sync with the cloud ledger), and `dashboard_start`, `dashboard_stop` (control the dashboard server).
 
-## Windows, later
+## Several machines
 
-Windows has no CodexBar. The plan is a `claude-logs` source that parses `%USERPROFILE%\.claude\projects\**\*.jsonl` directly, with CodexBar's rules: deduplicate by `message.id + requestId`, price with models.dev prices, tell 5-minute and 1-hour cache writes apart. Its `CaptureResult` carries its own machine id and goes through the same `ledger.apply_capture()`. How the data gets from Windows back to the Mac (an export file in a shared folder, or calling this Mac's API over Tailscale) is still open. The parser can be checked against CodexBar's results on a Mac first.
+See [MULTI_MACHINE.md](MULTI_MACHINE.md): how a sync works, merging rules, signing in and security, platforms, known gaps.
 
 ## Running cost and output
 

@@ -128,7 +128,7 @@ from tokenledger.sources.codex_logs import CodexLogsSource, parse_logs_export
 
 CODEX_CATALOG = {
     "fetchedAt": "2026-10-03T16:00:00Z",
-    "catalog": {"providers": {"openai": {"models": {"gpt-6-x": {"cost": {
+    "catalog": {"providers": {"openai": {"id": "openai", "models": {"gpt-6-x": {"id": "gpt-6-x", "cost": {
         "input": 2, "cache_read": 0.2, "output": 10,
         "context_over_200k": {"input": 4, "cache_read": 0.4, "output": 15}}}}}}},
 }

@@ -8,6 +8,8 @@
 /backend/.venv/
 /frontend/node_modules/
 /frontend/dist/
+/cloud/node_modules/
+/cloud/.wrangler/
 __pycache__/
 *.pyc
 .DS_Store

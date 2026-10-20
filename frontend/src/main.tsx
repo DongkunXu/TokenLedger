@@ -11,6 +11,7 @@ import "@fontsource/silkscreen/latin-400.css";
 import "./theme/tokens.css";
 import "./styles/app.css";
 import "./styles/panels.css";
+import "./styles/cloud.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

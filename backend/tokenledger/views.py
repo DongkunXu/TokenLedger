@@ -15,21 +15,32 @@ Combination rules for the per-provider daily view ("best" figures):
 * machine figures: when several sources read the same provider on the same
   machine, each day comes from the first source in ``MACHINE_SOURCE_ORDER`` that
   has it. Codex moved from CodexBar to codex-logs; CodexBar's rows remain as the
-  record of days whose logs are gone.
+  record of days whose logs are gone. Claude comes from CodexBar where it runs and
+  from claude-logs elsewhere
+* several machines: account figures are added up across accounts (each account
+  once, whichever machine read it). Each machine's own logs belong to the account
+  it reads, so they count through that account's figure; the logs of a machine
+  that reads no account of a provider are added on top. ``machine_usage`` splits
+  the machine figures by machine and shows the account usage no machine in the
+  ledger accounts for (other devices, cloud tasks)
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 from .config import Settings
 from .models import DAY_TOTAL
 
 PART_FIELDS = ("input_uncached", "cache_read", "cache_write", "output", "reasoning")
-MACHINE_SOURCE_ORDER = ("codex-logs", "codexbar")
+# Codex: its own logs before CodexBar's record of them. Claude: CodexBar on a Mac, the
+# claude-logs source (same rules) on machines without it.
+MACHINE_SOURCE_ORDER = ("codex-logs", "codexbar", "claude-logs")
 RETIRED_SOURCES = {("codexbar", "codex")}  # no longer captured; kept out of the health list
 
 
@@ -66,13 +77,29 @@ def bounds(conn: sqlite3.Connection) -> tuple[str, str] | None:
     return (row["lo"], row["hi"]) if row["lo"] else None
 
 
-def daily(conn: sqlite3.Connection, start: str, end: str) -> dict:
-    """Per provider, per day: best tokens, local detail, account tokens and cost."""
+def _coverage(conn: sqlite3.Connection) -> Callable[[str, str], bool]:
+    """Whether a machine's logs of a provider are already counted by an account-wide
+    series: they are when the machine reads that provider's account (each machine's own
+    logs belong to the account it is signed in to). A machine that has not recorded which
+    accounts it reads (a ledger from before sync) counts as reading them all."""
+    recorded = {
+        r["id"]: {provider for provider, _ in json.loads(r["accounts"])}
+        for r in conn.execute("SELECT id, accounts FROM machines WHERE accounts IS NOT NULL")
+    }
+    return lambda provider, machine: machine not in recorded or provider in recorded[machine]
+
+
+def _cells(conn: sqlite3.Connection, start: str, end: str) -> dict[tuple[str, str], dict]:
+    """Per provider and day: every figure the views need, before choosing between them."""
     cells: dict[tuple[str, str], dict] = defaultdict(
         lambda: {
-            "machine_tokens": 0,
+            "covered_tokens": 0,  # machine figures of machines that read an account
+            "uncovered_tokens": 0,  # machine figures of machines that read none
+            "covered_seen": False,
             "machine_seen": False,
             "account_tokens": None,
+            "by_machine": defaultdict(int),
+            "cost_by_machine": defaultdict(int),
             "cost_micros": 0,
             "cost_tokens": 0,
             "qualities": set(),
@@ -80,40 +107,61 @@ def daily(conn: sqlite3.Connection, start: str, end: str) -> dict:
             **{f: 0 for f in PART_FIELDS},
         }
     )
-    providers: set[str] = set()
+    covered = _coverage(conn)
     for r in _ledger_totals(conn, start, end):
-        providers.add(r["provider"])
         c = cells[(r["provider"], r["day"])]
         c["states"].add(r["state"])
         if r["scope"] == "account":
             c["account_tokens"] = (c["account_tokens"] or 0) + r["total"]
             continue
         c["machine_seen"] = True
-        c["machine_tokens"] += r["total"]
+        c["by_machine"][r["machine"]] += r["total"]
+        if covered(r["provider"], r["machine"]):
+            c["covered_tokens"] += r["total"]
+            c["covered_seen"] = True
+        else:
+            c["uncovered_tokens"] += r["total"]
         for f in PART_FIELDS:
             c[f] += r[f] or 0
         if r["cost_micros"] is not None:
             c["cost_micros"] += r["cost_micros"]
             c["cost_tokens"] += r["total"]
+            c["cost_by_machine"][r["machine"]] += r["cost_micros"]
         c["qualities"].add(r["cost_quality"])
+    for c in cells.values():
+        # The account figure is the provider's own count for every device signed in to it.
+        # While a day is open it may still lag behind the machines that read it.
+        c["account_chosen"] = c["account_tokens"] is not None and (
+            "open" not in c["states"] or not c["covered_seen"] or c["account_tokens"] >= c["covered_tokens"]
+        )
+        counted = c["account_tokens"] if c["account_chosen"] else c["covered_tokens"]
+        c["tokens"] = counted + c["uncovered_tokens"]
+        # Account usage no machine in this ledger accounts for: other devices, cloud tasks. It
+        # can be negative on a day: the account's day boundary (UTC for Codex) differs from the
+        # machines', so usage near midnight lands on neighbouring days (see machine_usage).
+        c["unattributed"] = c["account_tokens"] - c["covered_tokens"] if c["account_chosen"] else 0
+    return cells
 
+
+def daily(conn: sqlite3.Connection, start: str, end: str) -> dict:
+    """Per provider, per day: best tokens, local detail, account tokens and cost."""
+    cells = _cells(conn, start, end)
+    providers = sorted({p for p, _ in cells})
     days = _day_list(start, end)
     out = []
-    for provider in sorted(providers):
+    for provider in providers:
         rows = []
         for day in days:
             c = cells.get((provider, day))
             if c is None:
                 rows.append(None)
                 continue
-            account = c["account_tokens"] is not None and (
-                "open" not in c["states"] or not c["machine_seen"] or c["account_tokens"] >= c["machine_tokens"]
-            )
+            machine_tokens = c["covered_tokens"] + c["uncovered_tokens"]
             rows.append(
                 {
-                    "tokens": c["account_tokens"] if account else c["machine_tokens"],
-                    "basis": "account" if account else "machine",
-                    "machine_tokens": c["machine_tokens"] if c["machine_seen"] else None,
+                    "tokens": c["tokens"],
+                    "basis": "account" if c["account_chosen"] else "machine",
+                    "machine_tokens": machine_tokens if c["machine_seen"] else None,
                     "account_tokens": c["account_tokens"],
                     "cost_usd": c["cost_micros"] / 1e6 if c["cost_tokens"] else None,
                     "cost_tokens": c["cost_tokens"],
@@ -124,6 +172,49 @@ def daily(conn: sqlite3.Connection, start: str, end: str) -> dict:
             )
         out.append({"provider": provider, "values": rows})
     return {"start": start, "end": end, "days": days, "providers": out}
+
+
+def machine_usage(conn: sqlite3.Connection, start: str, end: str, local_machine: str | None = None) -> dict:
+    """Tokens per machine (each machine's own logs) and the account usage none of them
+    accounts for, in total and per day. Machines and the rest add up to ``summary``'s total
+    unless the machines' logs exceed their accounts' figures over the whole range."""
+    cells = _cells(conn, start, end)
+    days = _day_list(start, end)
+    index = {d: i for i, d in enumerate(days)}
+    labels = {r["id"]: dict(r) for r in conn.execute("SELECT id, label, os FROM machines")}
+    per: dict[str, dict] = {}
+    other = {"tokens": 0, "values": [0] * len(days), "providers": defaultdict(int)}
+    cost: dict[str, int] = defaultdict(int)
+    for (provider, day), c in cells.items():
+        for machine, tokens in c["by_machine"].items():
+            m = per.setdefault(machine, {"tokens": 0, "values": [0] * len(days), "providers": defaultdict(int)})
+            m["tokens"] += tokens
+            m["values"][index[day]] += tokens
+            m["providers"][provider] += tokens
+        for machine, micros in c["cost_by_machine"].items():
+            cost[machine] += micros
+        other["tokens"] += c["unattributed"]
+        other["values"][index[day]] += max(0, c["unattributed"])
+        other["providers"][provider] += c["unattributed"]
+    machines = [
+        {
+            "id": machine,
+            "label": (labels.get(machine) or {}).get("label", machine),
+            "os": (labels.get(machine) or {}).get("os"),
+            "this_machine": machine == local_machine,
+            "tokens": m["tokens"],
+            "cost_usd": round(cost[machine] / 1e6, 2) if machine in cost else None,
+            "providers": dict(m["providers"]),
+            "values": m["values"],
+        }
+        for machine, m in per.items()
+    ]
+    machines.sort(key=lambda m: m["tokens"], reverse=True)
+    # Over the range the day-boundary shifts cancel out, so the machines and the rest add up
+    # to the ledger's total; a single day's bar shows only what is above its machines.
+    other["tokens"] = max(0, other["tokens"])
+    other["providers"] = {p: n for p, n in other["providers"].items() if n > 0}
+    return {"start": start, "end": end, "days": days, "machines": machines, "other": other}
 
 
 def summary(conn: sqlite3.Connection, start: str, end: str) -> dict:
@@ -286,7 +377,7 @@ def _hour(iso: str) -> str:
 
 def revisions(conn: sqlite3.Connection, limit: int = 100) -> list[dict]:
     rows = conn.execute(
-        "SELECT r.*, s.source, s.provider, s.scope FROM revisions r JOIN series s ON s.id = r.series_id "
+        "SELECT r.*, s.source, s.provider, s.scope, s.machine FROM revisions r JOIN series s ON s.id = r.series_id "
         "ORDER BY r.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -295,46 +386,89 @@ def revisions(conn: sqlite3.Connection, limit: int = 100) -> list[dict]:
 
 def captures(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     rows = conn.execute(
-        "SELECT c.id, c.kind, c.source, s.provider, c.started_at, c.finished_at, c.status, c.tool_version, "
-        "c.stats, c.error FROM captures c LEFT JOIN series s ON s.id = c.series_id ORDER BY c.id DESC LIMIT ?",
+        "SELECT c.id, c.kind, c.source, s.provider, c.machine, c.started_at, c.finished_at, c.status, c.tool_version, "
+        "c.stats, c.error FROM captures c LEFT JOIN series s ON s.id = c.series_id ORDER BY c.started_at DESC, c.id DESC "
+        "LIMIT ?",
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def source_health(conn: sqlite3.Connection) -> list[dict]:
-    """Current state of every source, judged by its latest attempt.
+def source_health(conn: sqlite3.Connection, local_machine: str | None = None) -> list[dict]:
+    """Current state of every source on every machine, judged by its latest attempt.
 
-    One entry per source and provider. A failure recorded before any provider was known
-    (for example the tool is missing) applies to that source's providers when it is newer
-    than their own last attempt.
+    One entry per machine, source and provider. A failure recorded before any provider
+    was known (for example the tool is missing) applies to that source's providers on
+    the same machine when it is newer than their own last attempt. This machine's own
+    captures have no machine recorded; they are reported under ``local_machine``.
     """
     rows = conn.execute(
-        "SELECT c.source, s.provider, c.started_at, c.status, c.error FROM captures c "
-        "LEFT JOIN series s ON s.id = c.series_id WHERE c.kind IN ('usage', 'quota') ORDER BY c.id"
+        "SELECT c.machine, c.source, s.provider, c.started_at, c.status, c.error FROM captures c "
+        "LEFT JOIN series s ON s.id = c.series_id WHERE c.kind IN ('usage', 'quota') ORDER BY c.started_at, c.id"
     ).fetchall()
-    entries: dict[tuple[str, str | None], dict] = {}
+    labels = {r["id"]: r["label"] for r in conn.execute("SELECT id, label FROM machines")}
+    entries: dict[tuple[str | None, str, str | None], dict] = {}
     for r in rows:
         if (r["source"], r["provider"]) in RETIRED_SOURCES:
             continue
+        machine = r["machine"] or local_machine
         e = entries.setdefault(
-            (r["source"], r["provider"]), {"source": r["source"], "provider": r["provider"], "last_ok_at": None}
+            (machine, r["source"], r["provider"]),
+            {
+                "machine": machine,
+                "machine_label": labels.get(machine, machine),
+                "source": r["source"],
+                "provider": r["provider"],
+                "last_ok_at": None,
+            },
         )
         ok = r["status"] == "ok"
         e.update(last_at=r["started_at"], ok=ok, error=None if ok else r["error"])
         if ok:
             e["last_ok_at"] = r["started_at"]
 
+    # A source that a machine no longer runs (removed tool, not available on its platform)
+    # would keep its last result forever; it is left out once that machine's captures have
+    # moved on by more than a day.
+    newest: dict[str | None, str] = {}
+    for (machine, _, _), e in entries.items():
+        newest[machine] = max(newest.get(machine, ""), e["last_at"])
     out = []
-    for (source, provider), e in entries.items():
-        providers = [p for (s, p) in entries if s == source and p is not None]
+    for (machine, source, provider), e in entries.items():
+        if _days_between(e["last_at"], newest[machine]) > 1:
+            continue
+        providers = [p for (m, s, p) in entries if m == machine and s == source and p is not None]
         if provider is None and providers:
             continue  # folded into the provider entries below
-        general = entries.get((source, None))
+        general = entries.get((machine, source, None))
         if provider is not None and general and not general["ok"] and general["last_at"] > e["last_at"]:
             e = {**e, "ok": False, "last_at": general["last_at"], "error": general["error"]}
         out.append(e)
-    return sorted(out, key=lambda e: (e["source"], e["provider"] or ""))
+    local_first = lambda e: (e["machine"] != local_machine, e["machine_label"] or "", e["source"], e["provider"] or "")  # noqa: E731
+    return sorted(out, key=local_first)
+
+
+def _days_between(a: str, b: str) -> float:
+    try:
+        da = datetime.fromisoformat(a.replace("Z", "+00:00"))
+        db = datetime.fromisoformat(b.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if (da.tzinfo is None) != (db.tzinfo is None):
+        da, db = da.replace(tzinfo=None), db.replace(tzinfo=None)
+    return (db - da).total_seconds() / 86400
+
+
+def machines(conn: sqlite3.Connection, local_machine: str | None = None) -> list[dict]:
+    """Every machine with data in this ledger; ``snapshot_at`` is when the data of another
+    machine was taken there, ``synced_at`` when it arrived here."""
+    rows = conn.execute(
+        "SELECT m.id, m.label, m.os, m.first_seen_at, m.app_version, m.snapshot_at, m.synced_at, "
+        "(SELECT MAX(l.day) FROM ledger l JOIN series s ON s.id = l.series_id WHERE s.machine = m.id) AS last_day "
+        "FROM machines m ORDER BY m.id != ?, m.label",
+        (local_machine,),
+    ).fetchall()
+    return [{**dict(r), "this_machine": r["id"] == local_machine} for r in rows]
 
 
 def status(conn: sqlite3.Connection, settings: Settings) -> dict:
@@ -353,7 +487,37 @@ def status(conn: sqlite3.Connection, settings: Settings) -> dict:
         "revisions": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind != 'replaced'").fetchone()[0],
         "replacements": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind = 'replaced'").fetchone()[0],
         "quota_samples": conn.execute("SELECT COUNT(*) FROM quota_samples").fetchone()[0],
-        "sources": source_health(conn),
+        "sources": source_health(conn, settings.machine.id),
+        "machines": machines(conn, settings.machine.id),
+    }
+
+
+RANGE_DAYS = {"d30": 30, "d90": 90, "d180": 182, "y1": 365, "all": None}  # the dashboard's ranges
+
+
+def span(conn: sqlite3.Connection, range_key: str, today: str) -> tuple[str, str]:
+    """The days a dashboard range covers, ending today."""
+    if range_key not in RANGE_DAYS:
+        raise ValueError(f"unknown range {range_key!r}; one of {', '.join(RANGE_DAYS)}")
+    days = RANGE_DAYS[range_key]
+    if days is None:
+        b = bounds(conn)
+        return (min(b[0], today) if b else today), today
+    return (date.fromisoformat(today) - timedelta(days=days - 1)).isoformat(), today
+
+
+def dashboard(conn: sqlite3.Connection, settings: Settings, range_key: str, today: str) -> dict:
+    """Everything one dashboard range shows, in one answer (``GET /api/view``)."""
+    start, end = span(conn, range_key, today)
+    return {
+        "range": range_key,
+        "status": {**status(conn, settings), "today": today},
+        "summary": summary(conn, start, end),
+        "daily": daily(conn, start, end),
+        "models": models(conn, start, end),
+        "machines": machine_usage(conn, start, end, settings.machine.id),
+        "peaks": quota_peaks(conn, start, end, settings.tz),
+        "quota": quota_now(conn),
     }
 
 

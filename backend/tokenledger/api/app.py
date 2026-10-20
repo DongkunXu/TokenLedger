@@ -20,6 +20,7 @@ from .. import __version__, capture, sources, views
 from ..config import Paths, Settings, default_paths, load_settings, project_root
 from ..ledger import local_today
 from ..store import connect, migrate
+from ..sync import client as sync_client
 
 _capture_lock = threading.Lock()
 
@@ -58,9 +59,28 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
             raise HTTPException(400, "start is after end")
         return lo, hi
 
+    @app.get("/api/session")
+    def session():
+        """Which dashboard this is; the cloud dashboard answers with the signed-in person."""
+        return {"mode": "local"}
+
     @app.get("/api/status")
     def status(conn=Depends(db), s: Settings = Depends(get_settings)):
-        return {**views.status(conn, s), "version": __version__, "today": local_today(s, capture.utc_now()).isoformat()}
+        return {
+            **views.status(conn, s),
+            "version": __version__,
+            "today": local_today(s, capture.utc_now()).isoformat(),
+            "sync": sync_client.status(paths),
+        }
+
+    @app.get("/api/view")
+    def view(range_key: str = Query("all", alias="range"), conn=Depends(db), s: Settings = Depends(get_settings)):
+        """Everything one dashboard range shows (the cloud dashboard serves the same shape)."""
+        if range_key not in views.RANGE_DAYS:
+            raise HTTPException(400, f"range must be one of {', '.join(views.RANGE_DAYS)}")
+        out = views.dashboard(conn, s, range_key, local_today(s, capture.utc_now()).isoformat())
+        out["status"].update(version=__version__, sync=sync_client.status(paths), mode="local")
+        return out
 
     @app.get("/api/summary")
     def summary(start: str | None = None, end: str | None = None, conn=Depends(db)):
@@ -108,6 +128,9 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
                 usage_sources=sources.default_usage_sources(),
                 quota_sources=sources.default_quota_sources(),
             )
+            # A machine signed in to a cloud ledger syncs right after capturing; the outcome
+            # shows up in the status.
+            sync_client.after_capture(conn, paths, settings)
         finally:
             _capture_lock.release()
         return [o.as_dict() for o in outcomes]

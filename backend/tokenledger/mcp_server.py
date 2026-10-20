@@ -54,9 +54,12 @@ def _span(conn, settings, start: str | None, end: str | None) -> tuple[str, str]
 
 @mcp.tool(annotations=READ_ONLY)
 def ledger_status() -> dict:
-    """Machine, timezone, ledger size, last successful capture per source and recent failures."""
-    with _db() as (conn, _, settings):
-        return views.status(conn, settings)
+    """Machine, timezone, ledger size, last successful capture per source and machine, recent failures, the
+    machines in the ledger, and whether this machine is signed in to a cloud ledger with the outcome of its last sync."""
+    from .sync.client import status as sync_status
+
+    with _db() as (conn, paths, settings):
+        return {**views.status(conn, settings), "sync": sync_status(paths)}
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -125,7 +128,8 @@ def list_captures(limit: int = 30) -> dict:
 
 @mcp.tool(annotations=WRITES)
 def run_capture(source_ids: list[str] | None = None) -> dict:
-    """Read sources now and merge into the ledger. Source ids: codexbar, codex-server, codexbar-quota."""
+    """Read sources now and merge into the ledger; when signed in to a cloud ledger, then sync with it.
+    Source ids: codexbar, claude-logs, codex-logs, codex-server, codexbar-quota."""
     with _db() as (conn, paths, settings):
         usage = sources.default_usage_sources()
         quota = sources.default_quota_sources()
@@ -133,7 +137,35 @@ def run_capture(source_ids: list[str] | None = None) -> dict:
             usage = [s for s in usage if s.id in source_ids]
             quota = [s for s in quota if s.id in source_ids]
         outcomes = capture.run(conn, paths, settings, usage_sources=usage, quota_sources=quota)
-        return {"outcomes": [o.as_dict() for o in outcomes]}
+        from .sync.client import after_capture
+
+        synced = after_capture(conn, paths, settings)
+        return {"outcomes": [o.as_dict() for o in outcomes], **({"sync": synced} if synced is not None else {})}
+
+
+@mcp.tool(annotations=WRITES)
+def sync_now() -> dict:
+    """Sync with the cloud ledger now: share this machine's data, merge the other machines', publish the
+    dashboard. Only on a machine signed in with `tokenledger sync login`."""
+    from .sync.client import SyncError, sync
+
+    with _db() as (conn, paths, settings):
+        try:
+            return sync(conn, paths, settings)
+        except SyncError as exc:
+            return {"ok": False, "error": str(exc)}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def machine_usage(start: str | None = None, end: str | None = None) -> dict:
+    """Tokens and cost per computer for a date range (defaults to all history), and the account usage no
+    computer in the ledger accounts for (other devices, cloud tasks)."""
+    with _db() as (conn, _, settings):
+        out = views.machine_usage(conn, *_span(conn, settings, start, end), settings.machine.id)
+        for m in [*out["machines"], out["other"]]:
+            m.pop("values", None)
+        out.pop("days", None)
+        return out
 
 
 @mcp.tool(annotations=WRITES)
@@ -147,18 +179,18 @@ def accept_revision(revision_id: int) -> dict:
 
 @mcp.tool(annotations=READ_ONLY)
 def dashboard_status() -> dict:
-    """Whether the dashboard web server is running: pid, URL, uptime, idle limit, log path."""
+    """Whether the dashboard web server is running: pid, URL, uptime, log path."""
     from . import dashboard
 
     return dashboard.status()
 
 
 @mcp.tool(annotations=WRITES)
-def dashboard_start(open_browser: bool = True, idle_hours: float = 12.0) -> dict:
-    """Start the dashboard server in the background (no-op if it runs). It stops by itself after idle_hours without requests (0 = never)."""
+def dashboard_start(open_browser: bool = True) -> dict:
+    """Start the dashboard server in the background (no-op if it runs). It keeps running until dashboard_stop."""
     from . import dashboard
 
-    return dashboard.start(idle_hours=idle_hours, open_browser=open_browser)
+    return dashboard.start(open_browser=open_browser)
 
 
 @mcp.tool(annotations=WRITES)

@@ -19,11 +19,13 @@ export function TopBar(p: {
   theme: ThemeChoice;
   onTheme: (c: ThemeChoice) => void;
   status: Status | null;
+  ledger: string | null; // the cloud dashboard: whose ledger this is
   lastCapture: string | null; // oldest "last success" across sources
   failing: string[]; // names of sources whose latest attempt failed
   capturing: boolean;
   captureError: string | null; // the capture request itself failed
   onCapture: () => void;
+  onAccount: (() => void) | null; // the cloud dashboard: open the account dialog instead of capturing
 }) {
   const { t } = p;
   const nextTheme = THEME_ORDER[(THEME_ORDER.indexOf(p.theme) + 1) % THEME_ORDER.length];
@@ -37,9 +39,9 @@ export function TopBar(p: {
       <div className="cells">
         {p.status && (
           <div className="cell cell-machine">
-            <span className="lab">{t.top.machine}</span>
+            <span className="lab">{p.ledger ? t.cloud.ledger : t.top.machine}</span>
             <span className="v">
-              {p.status.machine.id.toUpperCase()} · {p.status.timezone}
+              {(p.ledger ?? p.status.machine.id).toUpperCase()} · {p.status.timezone}
             </span>
           </div>
         )}
@@ -73,11 +75,18 @@ export function TopBar(p: {
           {t.langSwitch}
         </button>
       </div>
-      <button className={`cap ${p.capturing ? "busy" : ""}`} onClick={p.onCapture} disabled={p.capturing}>
-        <span className="cap-glyph">{p.capturing ? "◌" : "▶"}</span>
-        {p.capturing ? t.top.capturing : t.top.capture}
-        {t.top.captureSub && !p.capturing && <span className="sub">{t.top.captureSub}</span>}
-      </button>
+      {p.onAccount ? (
+        <button className="cap" onClick={p.onAccount}>
+          <span className="cap-glyph">◎</span>
+          {p.ledger ?? t.cloud.account}
+        </button>
+      ) : (
+        <button className={`cap ${p.capturing ? "busy" : ""}`} onClick={p.onCapture} disabled={p.capturing}>
+          <span className="cap-glyph">{p.capturing ? "◌" : "▶"}</span>
+          {p.capturing ? t.top.capturing : t.top.capture}
+          {t.top.captureSub && !p.capturing && <span className="sub">{t.top.captureSub}</span>}
+        </button>
+      )}
     </header>
   );
 }

@@ -6,7 +6,7 @@ import { Toggle } from "../components/Toggle";
 import { type Lang, type Strings, providerCode } from "../i18n/strings";
 import { tokens, usd } from "../lib/format";
 
-// 06 · every model in the range with a share bar. The list scrolls inside the panel, whose
+// 07 · every model in the range with a share bar. The list scrolls inside the panel, whose
 // height follows its row.
 export function ModelsPanel({ models, t, lang, className }: { models: ModelRow[]; t: Strings; lang: Lang; className: string }) {
   const [by, setBy] = useState<"tokens" | "cost">("tokens");
@@ -16,8 +16,8 @@ export function ModelsPanel({ models, t, lang, className }: { models: ModelRow[]
 
   return (
     <Panel
-      id="s06"
-      index="06"
+      id="s07"
+      index="07"
       code="MD"
       title="Models"
       sub={t.panels.models}

@@ -73,6 +73,7 @@ class Settings:
     timezone: str
     grace_days: int
     machine: Machine
+    wsl: str = "all"  # Windows: read WSL distributions' logs: "all", "running" (no starting) or "off"
 
     @property
     def tz(self) -> ZoneInfo:
@@ -92,8 +93,19 @@ def codexbar_timezone() -> str | None:
 
 
 def system_timezone() -> str:
-    """This computer's IANA timezone name, or UTC when it cannot be determined."""
+    """This computer's IANA timezone name, or UTC when it cannot be determined.
+
+    tzlocal also maps Windows timezone names (e.g. "China Standard Time") to IANA ones;
+    the ``tzdata`` package provides the timezone database Windows does not have.
+    """
     name = os.environ.get("TZ", "").lstrip(":")
+    if not name:
+        try:
+            import tzlocal
+
+            name = tzlocal.get_localzone_name() or ""
+        except Exception:  # noqa: BLE001 - fall back to reading /etc/localtime below
+            name = ""
     if not name:
         target = os.path.realpath("/etc/localtime")
         if "zoneinfo/" in target:
@@ -130,6 +142,7 @@ def load_settings(paths: Paths) -> Settings:
             timezone=raw["timezone"],
             grace_days=int(raw["grace_days"]),
             machine=Machine(**raw["machine"]),
+            wsl=raw.get("wsl", "all"),
         )
     else:
         timezone = codexbar_timezone() or system_timezone()
@@ -139,7 +152,17 @@ def load_settings(paths: Paths) -> Settings:
     ZoneInfo(settings.timezone)  # fail fast on an invalid timezone
     if settings.grace_days < 1:
         raise ValueError(f"grace_days must be >= 1, got {settings.grace_days}")
+    if settings.wsl not in ("all", "running", "off"):
+        raise ValueError(f"wsl must be all, running or off, got {settings.wsl!r}")
     return settings
+
+
+def save_settings(paths: Paths, settings: Settings) -> None:
+    ZoneInfo(settings.timezone)
+    paths.data.mkdir(parents=True, exist_ok=True)
+    tmp = paths.settings.with_suffix(".tmp")
+    tmp.write_text(json.dumps(asdict(settings), indent=2) + "\n")
+    tmp.replace(paths.settings)
 
 
 def default_paths() -> Paths:

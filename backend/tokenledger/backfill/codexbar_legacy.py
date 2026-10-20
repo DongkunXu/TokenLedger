@@ -21,6 +21,7 @@ import gzip
 import json
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from ..models import DAY_TOTAL, CostQuality, DayUsage
@@ -234,7 +235,9 @@ def _codex_cost_per_token(cache: dict, day: str, catalog: Catalog) -> dict[str, 
     for r in _codex_rows(cache):
         if r["day"] != day:
             continue
-        usd = codex_request_cost_usd(catalog, r["model"], r["input"], r["cached"], r["output"])
+        # Old caches keep only the day; its middle is close enough for date-based price changes.
+        at = datetime.fromisoformat(f"{day}T12:00:00+00:00")
+        usd = codex_request_cost_usd(catalog, r["model"], r["input"], r["cached"], r["output"], at=at)
         if usd is None:
             unpriced.add(r["model"])
             continue

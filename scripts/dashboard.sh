@@ -7,7 +7,7 @@
 #   scripts/dashboard.sh status           is it running, where, since when
 #   scripts/dashboard.sh logs             log of the current / last run
 #   scripts/dashboard.sh run              run in this terminal instead (Ctrl+C stops it)
-# Options: --port N (default 8765), --idle-hours H (default 12; 0 = never stop by itself)
+# Options: --port N (default 8765). The server keeps running until stop/restart.
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 action="${1:-status}"

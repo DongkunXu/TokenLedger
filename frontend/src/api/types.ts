@@ -97,6 +97,8 @@ export interface RevisionRow {
 }
 
 export interface SourceHealth {
+  machine: string | null; // which machine's source (several machines push to a hub)
+  machine_label: string | null;
   source: string;
   provider: string | null;
   ok: boolean;
@@ -117,8 +119,99 @@ export interface Status {
   replacements: number;
   quota_samples: number;
   sources: SourceHealth[];
+  machines: MachineInfo[];
+  sync: SyncStatus;
   version: string;
   today: string;
+  mode?: "local"; // set by the local server; the cloud serves what a machine published
+}
+
+// Every machine with data in this ledger (backend views.machines).
+export interface MachineInfo {
+  id: string;
+  label: string;
+  os: string;
+  first_seen_at: string;
+  app_version: string | null;
+  snapshot_at: string | null; // another machine: when its data was taken there
+  synced_at: string | null; // another machine: when its data arrived here
+  last_day: string | null;
+  this_machine: boolean;
+}
+
+// Whether the machine that made this view is signed in to a cloud ledger (sync/client.status).
+export interface SyncStatus {
+  signed_in: boolean;
+  url?: string;
+  user?: string;
+  last_attempt_at?: string | null;
+  last_ok?: boolean | null;
+  last_ok_at?: string | null;
+  last_error?: string | null;
+  signed_out?: boolean;
+  error?: string;
+}
+
+// Tokens per machine over a range (backend views.machine_usage). ``other`` is account usage no
+// machine in the ledger accounts for: other devices, cloud tasks.
+export interface MachineUsageRow {
+  id: string;
+  label: string;
+  os: string | null;
+  this_machine: boolean;
+  tokens: number;
+  cost_usd: number | null;
+  providers: Record<string, number>;
+  values: number[];
+}
+
+export interface MachineUsage {
+  start: string;
+  end: string;
+  days: string[];
+  machines: MachineUsageRow[];
+  other: { tokens: number; values: number[]; providers: Record<string, number> };
+}
+
+// Everything one dashboard range shows (GET /api/view), locally or from the cloud.
+export interface View {
+  range: string;
+  status: Status;
+  summary: Summary;
+  daily: Daily;
+  models: ModelRow[];
+  machines: MachineUsage;
+  peaks: QuotaPeaks;
+  quota: QuotaReading[];
+}
+
+export type Session =
+  | { mode: "local" }
+  | { mode: "cloud"; user: { name: string; admin: boolean } | null; setup_needed: boolean };
+
+export interface Device {
+  id: string;
+  machine: string;
+  label: string;
+  os: string;
+  app_version: string | null;
+  created_at: string;
+  last_seen_at: string | null;
+  taken_at: string | null;
+}
+
+export interface PasskeyInfo {
+  id: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface LinkRequest {
+  machine: { id: string; label: string; os: string };
+  app_version: string;
+  from: string;
+  requested_at: string;
+  replaces: { label: string; last_seen_at: string | null } | null;
 }
 
 export interface CaptureOutcome {

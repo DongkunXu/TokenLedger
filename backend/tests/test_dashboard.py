@@ -41,10 +41,10 @@ def wait_until(predicate, timeout=8.0):
 
 def test_start_status_stop(env):
     port = free_port()
-    started = dashboard.start(port=port, idle_hours=0)
+    started = dashboard.start(port=port)
     assert started["running"] and started["healthy"] and not started["already_running"]
     assert started["url"] == f"http://127.0.0.1:{port}/"
-    again = dashboard.start(port=port, idle_hours=0)
+    again = dashboard.start(port=port)
     assert again["already_running"] and again["pid"] == started["pid"]
     stopped = dashboard.stop()
     assert stopped == {"stopped": True, "was_running": True, "forced": False, "pid": started["pid"]}
@@ -54,14 +54,8 @@ def test_start_status_stop(env):
     assert dashboard.stop() == {"stopped": False, "was_running": False}
 
 
-def test_stops_itself_when_idle(env):
-    dashboard.start(port=free_port(), idle_hours=1.5 / 3600)  # 1.5 seconds
-    assert wait_until(lambda: not dashboard.status()["running"])
-    assert "without requests" in dashboard.log_path().read_text()
-
-
 def test_terminal_hangup_is_a_graceful_stop(env):
-    pid = dashboard.start(port=free_port(), idle_hours=0)["pid"]
+    pid = dashboard.start(port=free_port())["pid"]
     os.kill(pid, signal.SIGHUP)
     assert wait_until(lambda: not dashboard.status()["running"])
     assert "stopped (terminal closed)" in dashboard.log_path().read_text()
@@ -80,4 +74,26 @@ def test_port_taken_by_another_program(env):
         s.bind(("127.0.0.1", 0))
         s.listen()
         with pytest.raises(dashboard.DashboardError, match="already in use"):
-            dashboard.start(port=s.getsockname()[1], idle_hours=0)
+            dashboard.start(port=s.getsockname()[1])
+
+
+def test_only_this_machine_can_use_it(env):
+    import urllib.error
+    import urllib.request
+
+    port = free_port()
+    dashboard.start(port=port)
+    base = f"http://127.0.0.1:{port}"
+
+    def status(path, method="GET", **headers):
+        request = urllib.request.Request(base + path, method=method, headers=headers, data=b"" if method == "POST" else None)
+        try:
+            with urllib.request.urlopen(request, timeout=5) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    assert status("/api/session") == 200
+    assert status("/api/session", Host="evil.example") == 421  # a rebound domain pointing at 127.0.0.1
+    assert status("/api/capture", "POST", Origin="https://evil.example") == 403
+    assert status("/_tokenledger/shutdown", "POST") == 403  # no token
