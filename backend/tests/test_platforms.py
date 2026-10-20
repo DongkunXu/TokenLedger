@@ -288,3 +288,52 @@ def test_catalog_falls_back_to_the_last_copy(tmp_path, monkeypatch):
 
     monkeypatch.setattr(catalog, "refresh", offline)
     assert catalog.catalog_bytes() == stale  # refresh failed: the old copy is used
+
+
+# -- codex app-server over stdio (a reader thread, as on Windows) --------------------------
+
+FAKE_SERVER = r'''
+import json, sys
+for line in sys.stdin:
+    msg = json.loads(line)
+    if "id" not in msg:
+        continue  # the initialized notification
+    method = msg["method"]
+    if method == "initialize":
+        result = {"userAgent": "fake"}
+    elif method == "account/read":
+        result = {"account": {"type": "chatgpt", "email": "me@example.com", "planType": "pro"}, "requiresOpenaiAuth": True}
+    elif method == "account/usage/read":
+        result = {"summary": {"lifetimeTokens": 30}, "dailyUsageBuckets": [{"startDate": "2026-10-19", "tokens": 30}]}
+    else:
+        print(json.dumps({"id": msg["id"], "error": {"code": -32601, "message": "unknown"}}), flush=True)
+        continue
+    print("not json, a log line", flush=True)
+    print(json.dumps({"id": msg["id"], "result": result}), flush=True)
+'''
+
+
+def test_codex_server_round_trip(tmp_path, ctx, monkeypatch):
+    from tokenledger.sources import codex_server
+
+    script = tmp_path / "fake_codex.py"
+    script.write_text(FAKE_SERVER)
+    if sys.platform == "win32":
+        pytest.skip("the fake server is a POSIX script")
+    binary = tmp_path / "codex"
+    binary.write_text(f"#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-fake 1.0; exit 0; fi\nexec {sys.executable} {script}\n")
+    binary.chmod(0o755)
+    [result] = codex_server.CodexServerSource(candidates=(str(binary),)).collect(ctx)
+    assert result.series.machine == account_key({"result": {"account": {"type": "chatgpt", "email": "me@example.com"}}})
+    assert [(r.day, r.total) for r in result.rows] == [("2026-10-19", 30)]
+    assert result.tool_version == "codex-fake 1.0"
+    unknown = codex_server.requests(str(binary), [("nope", None)], timeout=10)
+    assert unknown[0]["error"]["code"] == -32601
+
+
+def test_codex_server_is_quiet_where_codex_never_ran(tmp_path, ctx, monkeypatch):
+    from tokenledger.sources import codex_server
+
+    monkeypatch.setattr(homes, "codex_homes", lambda **k: [])
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert codex_server.CodexServerSource(candidates=(str(tmp_path / "missing"),)).collect(ctx) == []

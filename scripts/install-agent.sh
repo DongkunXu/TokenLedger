@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Install the launchd agent that captures twice a day (09:00 and 21:00; missed runs happen on wake).
+# Install the scheduled capture: twice a day (09:00 and 21:00; missed runs happen on wake or boot).
+# On a node, every capture also pushes to the hub.
+#   macOS: a launchd agent. Linux: a systemd user timer. Windows: scripts/install-agent.ps1
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
-LABEL="io.github.dongkunxu.tokenledger.capture"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-mkdir -p "$HOME/Library/LaunchAgents" "$ROOT/.build/logs"
-cat > "$PLIST" <<PLIST
+mkdir -p "$ROOT/.build/logs"
+
+case "$(uname -s)" in
+Darwin)
+  LABEL="io.github.dongkunxu.tokenledger.capture"
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -25,6 +31,40 @@ cat > "$PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-echo "installed $PLIST"
+  launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$PLIST"
+  echo "installed $PLIST"
+  ;;
+Linux)
+  UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+  mkdir -p "$UNITS"
+  cat > "$UNITS/tokenledger-capture.service" <<UNIT
+[Unit]
+Description=TokenLedger: capture AI usage (and push to the hub on a node)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $ROOT/scripts/capture-agent.sh
+Nice=10
+UNIT
+  cat > "$UNITS/tokenledger-capture.timer" <<UNIT
+[Unit]
+Description=TokenLedger capture at 09:00 and 21:00
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+OnCalendar=*-*-* 21:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl --user daemon-reload
+  systemctl --user enable --now tokenledger-capture.timer
+  echo "installed $UNITS/tokenledger-capture.timer"
+  ;;
+*)
+  echo "unsupported system $(uname -s); on Windows use scripts/install-agent.ps1" >&2
+  exit 1
+  ;;
+esac

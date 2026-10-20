@@ -128,7 +128,8 @@ def list_captures(limit: int = 30) -> dict:
 
 @mcp.tool(annotations=WRITES)
 def run_capture(source_ids: list[str] | None = None) -> dict:
-    """Read sources now and merge into the ledger. Source ids: codexbar, codex-server, codexbar-quota."""
+    """Read sources now and merge into the ledger; on a node, then push to the hub.
+    Source ids: codexbar, claude-logs, codex-logs, codex-server, codexbar-quota."""
     with _db() as (conn, paths, settings):
         usage = sources.default_usage_sources()
         quota = sources.default_quota_sources()
@@ -140,6 +141,18 @@ def run_capture(source_ids: list[str] | None = None) -> dict:
 
         pushed = after_capture(conn, paths, settings)
         return {"outcomes": [o.as_dict() for o in outcomes], **({"sync": pushed} if pushed is not None else {})}
+
+
+@mcp.tool(annotations=WRITES)
+def sync_push() -> dict:
+    """Send this machine's ledger to its sync hub now (only on a machine that joined a hub)."""
+    from .sync.client import SyncError, push
+
+    with _db() as (conn, paths, settings):
+        try:
+            return push(conn, paths, settings)
+        except SyncError as exc:
+            return {"ok": False, "error": str(exc)}
 
 
 @mcp.tool(annotations=WRITES)

@@ -37,9 +37,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 
-CODEXBAR_CATALOG = Path.home() / "Library/Caches/CodexBar/model-pricing/models-dev-v1.json"
 PER_MILLION = 1_000_000
 
 
