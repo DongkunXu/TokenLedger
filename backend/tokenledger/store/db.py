@@ -104,6 +104,20 @@ MIGRATIONS: list[str] = [
     UPDATE ledger SET state = 'final', finalized_at = strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')
     WHERE state = 'open' AND series_id IN (SELECT id FROM series WHERE source = 'codexbar' AND provider = 'codex');
     """,
+    # 3: several machines in one ledger (sync). Captures and revisions pushed by another
+    # machine keep a reference to their id there (``sync_ref`` = "<machine>:<id>") so a
+    # repeated push adds nothing; ``captures.machine`` is NULL for this machine's own.
+    """
+    ALTER TABLE captures ADD COLUMN machine TEXT;
+    ALTER TABLE captures ADD COLUMN sync_ref TEXT;
+    CREATE UNIQUE INDEX captures_sync_ref_idx ON captures(sync_ref) WHERE sync_ref IS NOT NULL;
+    ALTER TABLE revisions ADD COLUMN sync_ref TEXT;
+    CREATE UNIQUE INDEX revisions_sync_ref_idx ON revisions(sync_ref) WHERE sync_ref IS NOT NULL;
+    ALTER TABLE machines ADD COLUMN app_version TEXT;
+    ALTER TABLE machines ADD COLUMN last_push_at TEXT;
+    ALTER TABLE machines ADD COLUMN last_snapshot_at TEXT;
+    ALTER TABLE machines ADD COLUMN last_push_stats TEXT;
+    """,
 ]
 
 

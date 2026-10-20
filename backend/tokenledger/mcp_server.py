@@ -54,9 +54,12 @@ def _span(conn, settings, start: str | None, end: str | None) -> tuple[str, str]
 
 @mcp.tool(annotations=READ_ONLY)
 def ledger_status() -> dict:
-    """Machine, timezone, ledger size, last successful capture per source and recent failures."""
-    with _db() as (conn, _, settings):
-        return views.status(conn, settings)
+    """Machine, timezone, ledger size, last successful capture per source and machine, recent failures, and
+    this machine's sync role (hub, node or standalone) with the outcome of its last push."""
+    from .sync.client import status as sync_status
+
+    with _db() as (conn, paths, settings):
+        return {**views.status(conn, settings), "sync": sync_status(paths)}
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -133,7 +136,10 @@ def run_capture(source_ids: list[str] | None = None) -> dict:
             usage = [s for s in usage if s.id in source_ids]
             quota = [s for s in quota if s.id in source_ids]
         outcomes = capture.run(conn, paths, settings, usage_sources=usage, quota_sources=quota)
-        return {"outcomes": [o.as_dict() for o in outcomes]}
+        from .sync.client import after_capture
+
+        pushed = after_capture(conn, paths, settings)
+        return {"outcomes": [o.as_dict() for o in outcomes], **({"sync": pushed} if pushed is not None else {})}
 
 
 @mcp.tool(annotations=WRITES)

@@ -286,7 +286,7 @@ def _hour(iso: str) -> str:
 
 def revisions(conn: sqlite3.Connection, limit: int = 100) -> list[dict]:
     rows = conn.execute(
-        "SELECT r.*, s.source, s.provider, s.scope FROM revisions r JOIN series s ON s.id = r.series_id "
+        "SELECT r.*, s.source, s.provider, s.scope, s.machine FROM revisions r JOIN series s ON s.id = r.series_id "
         "ORDER BY r.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -295,30 +295,41 @@ def revisions(conn: sqlite3.Connection, limit: int = 100) -> list[dict]:
 
 def captures(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     rows = conn.execute(
-        "SELECT c.id, c.kind, c.source, s.provider, c.started_at, c.finished_at, c.status, c.tool_version, "
-        "c.stats, c.error FROM captures c LEFT JOIN series s ON s.id = c.series_id ORDER BY c.id DESC LIMIT ?",
+        "SELECT c.id, c.kind, c.source, s.provider, c.machine, c.started_at, c.finished_at, c.status, c.tool_version, "
+        "c.stats, c.error FROM captures c LEFT JOIN series s ON s.id = c.series_id ORDER BY c.started_at DESC, c.id DESC "
+        "LIMIT ?",
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def source_health(conn: sqlite3.Connection) -> list[dict]:
-    """Current state of every source, judged by its latest attempt.
+def source_health(conn: sqlite3.Connection, local_machine: str | None = None) -> list[dict]:
+    """Current state of every source on every machine, judged by its latest attempt.
 
-    One entry per source and provider. A failure recorded before any provider was known
-    (for example the tool is missing) applies to that source's providers when it is newer
-    than their own last attempt.
+    One entry per machine, source and provider. A failure recorded before any provider
+    was known (for example the tool is missing) applies to that source's providers on
+    the same machine when it is newer than their own last attempt. This machine's own
+    captures have no machine recorded; they are reported under ``local_machine``.
     """
     rows = conn.execute(
-        "SELECT c.source, s.provider, c.started_at, c.status, c.error FROM captures c "
-        "LEFT JOIN series s ON s.id = c.series_id WHERE c.kind IN ('usage', 'quota') ORDER BY c.id"
+        "SELECT c.machine, c.source, s.provider, c.started_at, c.status, c.error FROM captures c "
+        "LEFT JOIN series s ON s.id = c.series_id WHERE c.kind IN ('usage', 'quota') ORDER BY c.started_at, c.id"
     ).fetchall()
-    entries: dict[tuple[str, str | None], dict] = {}
+    labels = {r["id"]: r["label"] for r in conn.execute("SELECT id, label FROM machines")}
+    entries: dict[tuple[str | None, str, str | None], dict] = {}
     for r in rows:
         if (r["source"], r["provider"]) in RETIRED_SOURCES:
             continue
+        machine = r["machine"] or local_machine
         e = entries.setdefault(
-            (r["source"], r["provider"]), {"source": r["source"], "provider": r["provider"], "last_ok_at": None}
+            (machine, r["source"], r["provider"]),
+            {
+                "machine": machine,
+                "machine_label": labels.get(machine, machine),
+                "source": r["source"],
+                "provider": r["provider"],
+                "last_ok_at": None,
+            },
         )
         ok = r["status"] == "ok"
         e.update(last_at=r["started_at"], ok=ok, error=None if ok else r["error"])
@@ -326,15 +337,27 @@ def source_health(conn: sqlite3.Connection) -> list[dict]:
             e["last_ok_at"] = r["started_at"]
 
     out = []
-    for (source, provider), e in entries.items():
-        providers = [p for (s, p) in entries if s == source and p is not None]
+    for (machine, source, provider), e in entries.items():
+        providers = [p for (m, s, p) in entries if m == machine and s == source and p is not None]
         if provider is None and providers:
             continue  # folded into the provider entries below
-        general = entries.get((source, None))
+        general = entries.get((machine, source, None))
         if provider is not None and general and not general["ok"] and general["last_at"] > e["last_at"]:
             e = {**e, "ok": False, "last_at": general["last_at"], "error": general["error"]}
         out.append(e)
-    return sorted(out, key=lambda e: (e["source"], e["provider"] or ""))
+    local_first = lambda e: (e["machine"] != local_machine, e["machine_label"] or "", e["source"], e["provider"] or "")  # noqa: E731
+    return sorted(out, key=local_first)
+
+
+def machines(conn: sqlite3.Connection, local_machine: str | None = None) -> list[dict]:
+    """Every machine with data in this ledger; ``last_push_at`` is set for machines that push to this hub."""
+    rows = conn.execute(
+        "SELECT m.id, m.label, m.os, m.first_seen_at, m.app_version, m.last_push_at, m.last_snapshot_at, "
+        "(SELECT MAX(l.day) FROM ledger l JOIN series s ON s.id = l.series_id WHERE s.machine = m.id) AS last_day "
+        "FROM machines m ORDER BY m.id != ?, m.label",
+        (local_machine,),
+    ).fetchall()
+    return [{**dict(r), "this_machine": r["id"] == local_machine} for r in rows]
 
 
 def status(conn: sqlite3.Connection, settings: Settings) -> dict:
@@ -353,7 +376,8 @@ def status(conn: sqlite3.Connection, settings: Settings) -> dict:
         "revisions": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind != 'replaced'").fetchone()[0],
         "replacements": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind = 'replaced'").fetchone()[0],
         "quota_samples": conn.execute("SELECT COUNT(*) FROM quota_samples").fetchone()[0],
-        "sources": source_health(conn),
+        "sources": source_health(conn, settings.machine.id),
+        "machines": machines(conn, settings.machine.id),
     }
 
 

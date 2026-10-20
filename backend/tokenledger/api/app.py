@@ -20,8 +20,20 @@ from .. import __version__, capture, sources, views
 from ..config import Paths, Settings, default_paths, load_settings, project_root
 from ..ledger import local_today
 from ..store import connect, migrate
+from ..sync import client as sync_client
 
 _capture_lock = threading.Lock()
+
+
+def sync_status(paths: Paths) -> dict:
+    """This machine's sync role; for a hub, also whether its service is running."""
+    out = sync_client.status(paths)
+    if out["role"] == "hub":
+        from ..sync.service import HUB
+
+        service = HUB.status()
+        out["service"] = {"running": service["running"], "healthy": service.get("healthy", False)}
+    return out
 
 
 def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> FastAPI:
@@ -60,7 +72,12 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
 
     @app.get("/api/status")
     def status(conn=Depends(db), s: Settings = Depends(get_settings)):
-        return {**views.status(conn, s), "version": __version__, "today": local_today(s, capture.utc_now()).isoformat()}
+        return {
+            **views.status(conn, s),
+            "version": __version__,
+            "today": local_today(s, capture.utc_now()).isoformat(),
+            "sync": sync_status(paths),
+        }
 
     @app.get("/api/summary")
     def summary(start: str | None = None, end: str | None = None, conn=Depends(db)):
@@ -108,6 +125,8 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
                 usage_sources=sources.default_usage_sources(),
                 quota_sources=sources.default_quota_sources(),
             )
+            # A node pushes right after capturing; the outcome shows up in /api/status.
+            sync_client.after_capture(conn, paths, settings)
         finally:
             _capture_lock.release()
         return [o.as_dict() for o in outcomes]

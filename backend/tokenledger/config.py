@@ -142,5 +142,13 @@ def load_settings(paths: Paths) -> Settings:
     return settings
 
 
+def save_settings(paths: Paths, settings: Settings) -> None:
+    ZoneInfo(settings.timezone)
+    paths.data.mkdir(parents=True, exist_ok=True)
+    tmp = paths.settings.with_suffix(".tmp")
+    tmp.write_text(json.dumps(asdict(settings), indent=2) + "\n")
+    tmp.replace(paths.settings)
+
+
 def default_paths() -> Paths:
     return Paths(data=data_dir())
