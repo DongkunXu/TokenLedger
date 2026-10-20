@@ -71,7 +71,7 @@ export function AccountDialog({ user, google, invites, chrome, onClose, onSigned
               <span className="nm">
                 <b>{d.label}</b>
                 <small>
-                  {d.os} · {d.last_seen_at ? t.cloud.lastSeen(relativeTime(d.last_seen_at, lang)) : "—"}
+                  {[d.os, d.app_version, d.last_seen_at ? t.cloud.lastSeen(relativeTime(d.last_seen_at, lang)) : null].filter(Boolean).join(" · ")}
                 </small>
               </span>
               <button className="btn-quiet" onClick={() => window.confirm(t.cloud.removeConfirm(d.label)) && run(() => api.removeDevice(d.id))}>

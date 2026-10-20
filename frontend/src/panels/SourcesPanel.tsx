@@ -20,7 +20,8 @@ export function syncProblems(t: Strings, status: Status): string[] {
 export function SourcesPanel({ status, summary, t, lang, className }: { status: Status; summary: Summary; t: Strings; lang: Lang; className: string }) {
   const coverage = summary.providers.codex?.cost_coverage;
   const several = status.machines.length > 1;
-  const others = status.machines.filter((m) => !m.this_machine && m.snapshot_at);
+  // The cloud dashboard lists every machine with the code it runs; a local one shows only itself.
+  const machines = status.scope === "ledger" ? status.machines : [];
   const sync = status.sync ?? { signed_in: false };
   let n = 0;
   const code = (prefix: string) => `${prefix}-${String(++n).padStart(2, "0")}`;
@@ -71,19 +72,22 @@ export function SourcesPanel({ status, summary, t, lang, className }: { status: 
             lang={lang}
           />
         )}
-        {others.map((m: MachineInfo) => (
-          <SyncRow
-            key={m.id}
-            code={code("M")}
-            name={m.label}
-            detail={`${m.os} · ${t.sync.dataOf(relativeTime(m.snapshot_at!, lang))}`}
-            ok
-            state={null}
-            when={m.snapshot_at}
-            error={null}
-            lang={lang}
-          />
-        ))}
+        {machines.map((m: MachineInfo) => {
+          const at = m.snapshot_at ?? sync.last_ok_at ?? null; // the machine that published this view has none
+          return (
+            <SyncRow
+              key={m.id}
+              code={code("M")}
+              name={m.label}
+              detail={[m.os, m.app_version, at && t.sync.dataOf(relativeTime(at, lang))].filter(Boolean).join(" · ")}
+              ok
+              state={null}
+              when={at}
+              error={null}
+              lang={lang}
+            />
+          );
+        })}
       </ul>
       <div className="stats">
         <Stat code="Rows" sub={t.sources.rows} value={status.ledger_rows} />

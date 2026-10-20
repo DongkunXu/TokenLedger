@@ -44,11 +44,12 @@ def meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
-def ensure_machine(conn: sqlite3.Connection, machine: Machine, now: str) -> None:
+def ensure_machine(conn: sqlite3.Connection, machine: Machine, now: str, app_version: str | None = None) -> None:
     conn.execute(
-        "INSERT INTO machines(id, label, os, first_seen_at) VALUES(?, ?, ?, ?) "
-        "ON CONFLICT(id) DO UPDATE SET label=excluded.label, os=excluded.os",
-        (machine.id, machine.label, machine.os, now),
+        "INSERT INTO machines(id, label, os, first_seen_at, app_version) VALUES(?, ?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET label=excluded.label, os=excluded.os, "
+        "app_version=COALESCE(excluded.app_version, machines.app_version)",
+        (machine.id, machine.label, machine.os, now, app_version),
     )
 
 

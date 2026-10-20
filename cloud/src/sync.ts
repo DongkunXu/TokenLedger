@@ -77,7 +77,10 @@ async function device(request: Request, env: Env): Promise<Device> {
   if (request.headers.get("X-TokenLedger-Instance") !== found.instance) {
     throw new HttpError(409, "this machine's ledger was recreated since it signed in; run `tokenledger sync login` again");
   }
-  await env.DB.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").bind(now(), found.id).run();
+  const version = (request.headers.get("X-TokenLedger-Version") ?? "").slice(0, 40) || null;
+  await env.DB.prepare("UPDATE devices SET last_seen_at = ?, app_version = COALESCE(?, app_version) WHERE id = ?")
+    .bind(now(), version, found.id)
+    .run();
   return found;
 }
 

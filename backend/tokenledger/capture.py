@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import ledger, rawstore
+from . import build_version, ledger, rawstore
 from .config import Paths, Settings
 from .sources import QuotaSource, SourceContext, SourceError, UsageSource
 from .models import CaptureResult, Scope, SeriesKey
@@ -80,7 +80,7 @@ def run(
 ) -> list[Outcome]:
     started = clock()
     with repo.transaction(conn):
-        repo.ensure_machine(conn, settings.machine, ledger.iso(started))
+        repo.ensure_machine(conn, settings.machine, ledger.iso(started), build_version())
     outcomes = [_run_usage(conn, paths, settings, s, clock) for s in usage_sources]
     outcomes += [_run_quota(conn, settings, s, clock) for s in quota_sources]
     with repo.transaction(conn):

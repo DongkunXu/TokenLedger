@@ -91,7 +91,7 @@ scripts/install-agent.sh                                       # capture (and sy
 # Windows: .\scripts\tokenledger.ps1 sync login https://tokens.example.com; .\scripts\install-agent.ps1
 ```
 
-`tokenledger sync status` shows the outcome of the last sync, `tokenledger sync now` syncs right away, `tokenledger sync logout` signs the machine out (its ledger stays).
+The cloud dashboard's Sources panel lists every machine with the code it runs (version and git commit, e.g. `0.2.0+d5cf1f0`) and when its data was taken. `tokenledger sync status` shows the outcome of the last sync, `tokenledger sync now` syncs right away, `tokenledger sync logout` signs the machine out (its ledger stays).
 
 ### Lost every way to sign in
 

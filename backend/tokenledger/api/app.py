@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, capture, views
+from .. import __version__, build_version, capture, views
 from ..config import Paths, Settings, default_paths, load_settings, project_root
 from ..ledger import local_today
 from ..store import connect, migrate
@@ -64,7 +64,7 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
     def status(conn=Depends(db), s: Settings = Depends(get_settings)):
         return {
             **views.status(conn, s),
-            "version": __version__,
+            "version": build_version(),
             "today": local_today(s, capture.utc_now()).isoformat(),
             "sync": sync_client.status(paths),
         }
@@ -76,7 +76,7 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
             raise HTTPException(400, f"range must be one of {', '.join(views.RANGE_DAYS)}")
         # This machine's own data; the cloud dashboard shows every machine (sync/client.py).
         today = local_today(s, capture.utc_now()).isoformat()
-        return views.dashboard(conn, s, range_key, today, scope="machine", version=__version__, sync=sync_client.status(paths))
+        return views.dashboard(conn, s, range_key, today, scope="machine", version=build_version(), sync=sync_client.status(paths))
 
     @app.get("/api/summary")
     def summary(start: str | None = None, end: str | None = None, conn=Depends(db)):

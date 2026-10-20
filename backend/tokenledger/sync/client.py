@@ -35,7 +35,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Callable
 
-from .. import __version__, views
+from .. import __version__, build_version, views
 from ..config import Paths, Settings, default_paths, load_settings, save_settings
 from ..ledger import iso, local_today
 from ..store import connect, migrate, repo
@@ -116,6 +116,7 @@ class Session:
             "X-TokenLedger-Machine": link.machine,
             "X-TokenLedger-Instance": snapshot.instance(conn),
             "X-TokenLedger-Host": sync_config.host_fingerprint(),
+            "X-TokenLedger-Version": build_version(),
         }
 
     def call(self, method: str, path: str, *, ok=(200,), **kwargs) -> tuple[int, dict, bytes]:
@@ -164,7 +165,7 @@ def login(
             "machine": {"id": me.id, "label": me.label, "os": me.os},
             "instance": snapshot.instance(conn),
             "host": sync_config.host_fingerprint(),
-            "app_version": __version__,
+            "app_version": build_version(),
             "timezone": settings.timezone,
             "grace_days": settings.grace_days,
         },
@@ -305,7 +306,7 @@ def _sync(conn: sqlite3.Connection, settings: Settings, link: sync_config.Link, 
         out["merged"].append({"machine": entry.get("label") or machine, **stats})
 
     taken_at = snapshot.snapshot_time()
-    body = gzip.compress(json.dumps(snapshot.build(conn, settings, app_version=__version__, taken_at=taken_at)).encode())
+    body = gzip.compress(json.dumps(snapshot.build(conn, settings, app_version=build_version(), taken_at=taken_at)).encode())
     session.call(
         "PUT", "/api/sync/snapshot", body=body, headers={"Content-Type": SNAPSHOT_TYPE, "X-TokenLedger-Taken-At": taken_at}
     )
@@ -334,7 +335,7 @@ def dashboard_container(conn: sqlite3.Connection, settings: Settings, synced: di
     parts = []
     digest = hashlib.sha256()
     for key in views.RANGE_DAYS:
-        view = views.dashboard(conn, settings, key, today, scope="ledger", version=__version__, sync={})
+        view = views.dashboard(conn, settings, key, today, scope="ledger", version=build_version(), sync={})
         digest.update(json.dumps(view, separators=(",", ":")).encode())
         view["status"]["sync"] = synced
         parts.append((key, gzip.compress(json.dumps(view, separators=(",", ":")).encode(), mtime=0)))
