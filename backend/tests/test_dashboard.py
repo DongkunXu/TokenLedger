@@ -16,7 +16,8 @@ def env(tmp_path, monkeypatch):
     data = tmp_path / "data"
     data.mkdir()
     (data / "settings.json").write_text(
-        json.dumps({"timezone": "Europe/London", "grace_days": 3, "machine": {"id": "t", "label": "t", "os": "darwin"}})
+        json.dumps({"timezone": "Europe/London", "grace_days": 3, "machine": {"id": "t", "label": "t", "os": "darwin"},
+                    "auto_capture_minutes": 0})
     )
     monkeypatch.setenv("TOKENLEDGER_DATA_DIR", str(data))
     monkeypatch.setenv("TOKENLEDGER_RUN_DIR", str(tmp_path / "run"))

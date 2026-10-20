@@ -11,7 +11,7 @@ export function sourceName(t: Strings, s: SourceHealth): string {
 // Sync problems the top bar should flag like a failing source.
 export function syncProblems(t: Strings, status: Status): string[] {
   const sync = status.sync;
-  if (sync.signed_in && sync.last_ok === false) return [sync.signed_out ? t.sync.signedOut : t.sync.failed];
+  if (sync?.signed_in && sync.last_ok === false) return [sync.signed_out ? t.sync.signedOut : t.sync.failed];
   return [];
 }
 
@@ -21,7 +21,7 @@ export function SourcesPanel({ status, summary, t, lang, className }: { status: 
   const coverage = summary.providers.codex?.cost_coverage;
   const several = status.machines.length > 1;
   const others = status.machines.filter((m) => !m.this_machine && m.snapshot_at);
-  const sync = status.sync;
+  const sync = status.sync ?? { signed_in: false };
   let n = 0;
   const code = (prefix: string) => `${prefix}-${String(++n).padStart(2, "0")}`;
   return (

@@ -5,8 +5,8 @@
 * runs until it is told to stop: Ctrl+C, SIGTERM (``dashboard stop``) or SIGHUP (the
   terminal that started it closed). Windows has no SIGTERM for other processes, so
   ``stop`` there posts to a shutdown path with a random token from the state file
-* while this machine is signed in to a cloud ledger, syncs with it in the background
-  (``sync/client.py``), so the dashboard shows the other machines' latest data
+* captures on a schedule and, when signed in to a cloud ledger, syncs with it in the
+  background (``background.py``)
 * logs one line per lifecycle event to stdout (the log file when started detached)
 """
 
@@ -92,7 +92,7 @@ async def _respond(send, status: int) -> None:
 def serve(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
     """Run the dashboard server in the foreground until it is told to stop."""
     from .app import create_app
-    from ..sync.client import BackgroundSync
+    from ..background import BackgroundWork
 
     if host not in ALLOWED_HOSTS:
         raise SystemExit("TokenLedger only listens on this machine (127.0.0.1)")
@@ -136,7 +136,7 @@ def serve(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False)
         fh.write(json.dumps(state, indent=2))
     tmp.replace(path)
     log(f"started pid={state['pid']} url={url}")
-    background = BackgroundSync(log=log)
+    background = BackgroundWork(log=log)
     background.start()
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()

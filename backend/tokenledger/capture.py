@@ -8,6 +8,7 @@ before it is merged, and the merge happens in a single transaction per series.
 from __future__ import annotations
 
 import sqlite3
+import threading
 import traceback
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -36,6 +37,36 @@ class Outcome:
 
     def as_dict(self) -> dict:
         return {"source": self.source, "ok": self.ok, "series": self.series, "error": self.error}
+
+
+# One capture at a time in this process: the dashboard's button and its own schedule share it.
+LOCK = threading.Lock()
+
+
+def run_default(conn: sqlite3.Connection, paths: Paths, settings: Settings) -> list[Outcome] | None:
+    """Capture every source this machine has, then sync when signed in to a cloud ledger.
+    None without waiting when another capture in this process is running."""
+    from . import sources
+    from .sync.client import after_capture
+
+    if not LOCK.acquire(blocking=False):
+        return None
+    try:
+        outcomes = run(
+            conn, paths, settings,
+            usage_sources=sources.default_usage_sources(), quota_sources=sources.default_quota_sources(),
+        )
+        # The outcome of the sync shows up in the status; a failed sync never fails the capture.
+        after_capture(conn, paths, settings)
+        return outcomes
+    finally:
+        LOCK.release()
+
+
+def last_own_capture(conn: sqlite3.Connection) -> datetime | None:
+    """When this machine last started a capture of its sources (any outcome)."""
+    row = conn.execute("SELECT MAX(started_at) AS at FROM captures WHERE machine IS NULL AND kind IN ('usage', 'quota')").fetchone()
+    return datetime.fromisoformat(row["at"]) if row and row["at"] else None
 
 
 def run(

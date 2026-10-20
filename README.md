@@ -64,7 +64,7 @@ On Windows, in PowerShell (if scripts are blocked, run them as `powershell -Exec
 .\scripts\dashboard.ps1 open
 ```
 
-The first capture creates `data/` with the ledger and your settings, and the first `open` builds the dashboard and opens http://127.0.0.1:8765/. Later, press **Capture** on the dashboard or run `scripts/tokenledger.sh capture` again.
+The first capture creates `data/` with the ledger and your settings, and the first `open` builds the dashboard and opens http://127.0.0.1:8765/. While the dashboard server runs it captures by itself every hour; **Capture** on the dashboard or `scripts/tokenledger.sh capture` captures right away.
 
 ### How often to capture
 
@@ -80,7 +80,7 @@ Then ask things like "how many tokens did I use last week", "capture now" or "op
 
 ## Several machines
 
-Every machine keeps capturing into its own ledger and shares it through a **cloud ledger** you deploy once on your own Cloudflare account (the free plan is enough). Each machine merges what the others share, so every dashboard shows all machines, and the cloud serves the same dashboard on the web after you sign in with Google or a passkey.
+Every machine keeps capturing into its own ledger and shares it through a **cloud ledger** you deploy once on your own Cloudflare account (the free plan is enough). Each machine's local dashboard shows that machine; the cloud dashboard, on the web after you sign in with Google or a passkey, shows the total of every machine and how it splits across them.
 
 Once, on any machine (a domain on your Cloudflare account; see [docs/MULTI_MACHINE.md](docs/MULTI_MACHINE.md)):
 
@@ -111,7 +111,7 @@ Each machine gets its own token; remove one in the web dashboard's account menu 
 | `scripts/dashboard.sh logs` | Log of the current (or last) run |
 | `scripts/dashboard.sh run` | Run in this terminal instead; Ctrl+C stops it |
 
-The server is detached from the terminal that started it and keeps running until you stop it: `stop` or `restart`, Ctrl+C in `run` mode, or logging out or shutting down. Each reason is written to the log. While the Mac sleeps it pauses, and it carries on after wake. It listens on 127.0.0.1 only. When the machine is signed in to a cloud ledger, the server syncs with it every 10 minutes.
+The server is detached from the terminal that started it and keeps running until you stop it: `stop` or `restart`, Ctrl+C in `run` mode, or logging out or shutting down. Each reason is written to the log. While the Mac sleeps it pauses, and it carries on after wake. It listens on 127.0.0.1 only. While it runs it also captures by itself every hour (`auto_capture_minutes` in the settings; 0 turns it off), and when the machine is signed in to a cloud ledger it syncs every 10 minutes.
 
 The header shows when every source last succeeded. When a source fails, the header shows a red notice until that source succeeds again, and the Sources panel shows the error.
 
@@ -161,6 +161,7 @@ For Codex, the dashboard prefers the account-wide totals. The server lags half a
 | `timezone` | CodexBar's day timezone if set, else this machine's timezone. Days are bucketed in it, and it must match CodexBar's. All machines of one ledger use the same one |
 | `grace_days` | 3 |
 | `machine` | An id and label for this machine |
+| `auto_capture_minutes` | 60: how often the running dashboard server captures by itself; 0 = never, at least 10 |
 | `wsl` | Windows only: read the logs inside WSL distributions: `all` (default; starts a stopped distribution to read it), `running`, or `off` |
 
 Changing the timezone after days have been settled makes old and new days disagree at midnight, so set it before your first capture if the default is wrong.

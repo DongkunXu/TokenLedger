@@ -91,6 +91,26 @@ def test_dashboard_ranges(conn):
     capture_into(conn, mac, SeriesKey("codexbar", "claude", "mac", Scope.MACHINE), [usage("2026-01-05", 7), usage("2026-10-10", 100)], "2026-10-19T10:00:00")
     assert views.span(conn, "d30", "2026-10-20") == ("2026-09-21", "2026-10-20")
     assert views.span(conn, "all", "2026-10-20") == ("2026-01-05", "2026-10-20")
-    view = views.dashboard(conn, mac, "d30", "2026-10-20")
+    view = views.dashboard(conn, mac, "d30", "2026-10-20", scope="ledger", version="v", sync={"signed_in": False})
     assert view["summary"]["tokens"] == 100 and view["status"]["today"] == "2026-10-20"
     assert set(view) == {"range", "status", "summary", "daily", "models", "machines", "peaks", "quota"}
+    # Everything the dashboard reads from the status is there, the cloud's copy included.
+    assert {"version", "sync", "scope", "sources", "machines", "machine", "timezone"} <= set(view["status"])
+
+
+def test_a_machine_shows_itself_and_the_ledger_shows_every_machine(conn):
+    mac, pc = make_settings(MAC), make_settings(PC)
+    capture_into(conn, mac, SeriesKey("codexbar", "claude", "mac", Scope.MACHINE), [usage("2026-10-10", 100)], "2026-10-19T10:00:00")
+    capture_into(conn, mac, SeriesKey("codex-server", "codex", "acct-a", Scope.ACCOUNT), [usage("2026-10-10", 500)], "2026-10-19T10:00:00")
+    # The PC's data, as merged from its snapshot: its own series and captures name it.
+    capture_into(conn, pc, SeriesKey("claude-logs", "claude", "pc", Scope.MACHINE), [usage("2026-10-10", 40)], "2026-10-19T10:00:00")
+    conn.execute("UPDATE captures SET machine = 'pc' WHERE source = 'claude-logs'")
+    reads(conn, MAC, [["codex", "acct-a"]])
+    reads(conn, PC, [])
+    local = views.dashboard(conn, mac, "all", "2026-10-20", scope="machine", version="v", sync={})
+    cloud = views.dashboard(conn, mac, "all", "2026-10-20", scope="ledger", version="v", sync={})
+    assert local["summary"]["tokens"] == 600 and cloud["summary"]["tokens"] == 640
+    assert [m["id"] for m in local["machines"]["machines"]] == ["mac"]
+    assert {m["id"] for m in cloud["machines"]["machines"]} == {"mac", "pc"}
+    assert [m["id"] for m in local["status"]["machines"]] == ["mac"]
+    assert {s["machine"] for s in local["status"]["sources"]} == {"mac"}

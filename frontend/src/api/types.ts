@@ -123,7 +123,7 @@ export interface Status {
   sync: SyncStatus;
   version: string;
   today: string;
-  mode?: "local"; // set by the local server; the cloud serves what a machine published
+  scope: "machine" | "ledger"; // this machine's own data (local dashboard) or every machine's (cloud)
 }
 
 // Every machine with data in this ledger (backend views.machines).

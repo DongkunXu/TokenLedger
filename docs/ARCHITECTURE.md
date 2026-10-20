@@ -206,7 +206,7 @@ Listens on 127.0.0.1 only, and refuses requests whose Host is not a loopback nam
 | Path | Returns |
 |---|---|
 | `GET /api/session` | `{"mode": "local"}`; the cloud dashboard answers with the signed-in person |
-| `GET /api/view?range` | Everything one dashboard range (`d30`, `d90`, `d180`, `y1`, `all`) shows: status, summary, daily, models, machines, quota. The dashboard reads only this; the cloud serves the same shape |
+| `GET /api/view?range` | Everything one dashboard range (`d30`, `d90`, `d180`, `y1`, `all`) shows: status, summary, daily, models, machines, quota, for this machine only (its own series and the accounts it reads). The dashboard reads only this; the cloud serves the same shape for every machine (`views.dashboard(scope=...)`) |
 | `GET /api/status` | Machine, timezone, ledger row counts, each source's latest attempt per machine (`sources`: machine, ok, time, error, last success), every machine in the ledger (`machines`), and whether this machine is signed in to a cloud ledger with its last sync (`sync`) |
 | `GET /api/summary?start&end` | Totals per provider, cost coverage, token makeup, peak day, streaks |
 | `GET /api/daily?start&end` | Tokens, cost, quality and open flag per day and provider |
@@ -248,7 +248,7 @@ A Cloudflare Worker with a D1 database, deployed with `scripts/cloud.sh` (wrangl
 - `dashboard start` launches the server in its own session (`start_new_session`), detached from the terminal that started it, and returns once `/api/status` answers. Only one runs at a time; a port taken by another program is an error
 - On start the server writes `.build/run/dashboard.json` (pid, port, start time, shutdown token) and removes it on exit. The management commands find the server through it and first check that the pid really is a TokenLedger server before sending signals; a state file left by a crash is detected and removed
 - It runs until it is told to stop. Every exit is graceful: SIGTERM (`dashboard stop`), Ctrl+C, SIGHUP (its terminal closed). uvicorn re-raises SIGINT/SIGTERM after handling them, so the server installs Python-level handlers first to make sure cleanup and logging finish. `stop` force-kills only after 10 seconds
-- When the machine is signed in to a cloud ledger, a background thread syncs every 10 minutes (skipping a round while another process syncs)
+- A background thread (`background.py`) captures every `auto_capture_minutes` (60 by default, counted from the machine's last capture) and, when signed in to a cloud ledger, syncs every 10 minutes; a round is skipped while another capture or sync runs
 - The log is `.build/run/dashboard.log`, overwritten on every start, so only the latest run is kept
 
 ## MCP tools

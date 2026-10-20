@@ -44,12 +44,22 @@ MACHINE_SOURCE_ORDER = ("codex-logs", "codexbar", "claude-logs")
 RETIRED_SOURCES = {("codexbar", "codex")}  # no longer captured; kept out of the health list
 
 
-def _ledger_totals(conn: sqlite3.Connection, start: str, end: str) -> list[sqlite3.Row]:
+def _mine(only: str | None) -> tuple[str, tuple]:
+    """SQL condition on ``series s`` for the series ``only`` (this machine) holds itself: its
+    own and the account series it read. Without ``only``, every series in the ledger."""
+    if only is None:
+        return "1", ()
+    own = "SELECT series_id FROM captures WHERE machine IS NULL AND series_id IS NOT NULL"
+    return f"(s.machine = ? OR s.id IN ({own}))", (only,)
+
+
+def _ledger_totals(conn: sqlite3.Connection, start: str, end: str, only: str | None = None) -> list[sqlite3.Row]:
     """Day-total rows of every account series and of the preferred machine series."""
+    mine, args = _mine(only)
     rows = conn.execute(
         "SELECT s.provider, s.scope, s.source, s.machine, l.* FROM ledger l JOIN series s ON s.id = l.series_id "
-        "WHERE l.model = ? AND l.day BETWEEN ? AND ? ORDER BY l.day",
-        (DAY_TOTAL, start, end),
+        f"WHERE l.model = ? AND l.day BETWEEN ? AND ? AND {mine} ORDER BY l.day",
+        (DAY_TOTAL, start, end, *args),
     ).fetchall()
     chosen = _preferred(rows)
     return [r for r in rows if r["scope"] == "account" or (r["series_id"], r["day"]) in chosen]
@@ -72,8 +82,11 @@ def _preferred(totals: list[sqlite3.Row]) -> set[tuple[int, str]]:
     return {(r["series_id"], r["day"]) for r in best.values()}
 
 
-def bounds(conn: sqlite3.Connection) -> tuple[str, str] | None:
-    row = conn.execute("SELECT MIN(day) AS lo, MAX(day) AS hi FROM ledger").fetchone()
+def bounds(conn: sqlite3.Connection, only: str | None = None) -> tuple[str, str] | None:
+    mine, args = _mine(only)
+    row = conn.execute(
+        f"SELECT MIN(l.day) AS lo, MAX(l.day) AS hi FROM ledger l JOIN series s ON s.id = l.series_id WHERE {mine}", args
+    ).fetchone()
     return (row["lo"], row["hi"]) if row["lo"] else None
 
 
@@ -89,7 +102,7 @@ def _coverage(conn: sqlite3.Connection) -> Callable[[str, str], bool]:
     return lambda provider, machine: machine not in recorded or provider in recorded[machine]
 
 
-def _cells(conn: sqlite3.Connection, start: str, end: str) -> dict[tuple[str, str], dict]:
+def _cells(conn: sqlite3.Connection, start: str, end: str, only: str | None = None) -> dict[tuple[str, str], dict]:
     """Per provider and day: every figure the views need, before choosing between them."""
     cells: dict[tuple[str, str], dict] = defaultdict(
         lambda: {
@@ -108,7 +121,7 @@ def _cells(conn: sqlite3.Connection, start: str, end: str) -> dict[tuple[str, st
         }
     )
     covered = _coverage(conn)
-    for r in _ledger_totals(conn, start, end):
+    for r in _ledger_totals(conn, start, end, only):
         c = cells[(r["provider"], r["day"])]
         c["states"].add(r["state"])
         if r["scope"] == "account":
@@ -143,9 +156,9 @@ def _cells(conn: sqlite3.Connection, start: str, end: str) -> dict[tuple[str, st
     return cells
 
 
-def daily(conn: sqlite3.Connection, start: str, end: str) -> dict:
+def daily(conn: sqlite3.Connection, start: str, end: str, only: str | None = None) -> dict:
     """Per provider, per day: best tokens, local detail, account tokens and cost."""
-    cells = _cells(conn, start, end)
+    cells = _cells(conn, start, end, only)
     providers = sorted({p for p, _ in cells})
     days = _day_list(start, end)
     out = []
@@ -174,11 +187,13 @@ def daily(conn: sqlite3.Connection, start: str, end: str) -> dict:
     return {"start": start, "end": end, "days": days, "providers": out}
 
 
-def machine_usage(conn: sqlite3.Connection, start: str, end: str, local_machine: str | None = None) -> dict:
+def machine_usage(
+    conn: sqlite3.Connection, start: str, end: str, local_machine: str | None = None, only: str | None = None
+) -> dict:
     """Tokens per machine (each machine's own logs) and the account usage none of them
     accounts for, in total and per day. Machines and the rest add up to ``summary``'s total
     unless the machines' logs exceed their accounts' figures over the whole range."""
-    cells = _cells(conn, start, end)
+    cells = _cells(conn, start, end, only)
     days = _day_list(start, end)
     index = {d: i for i, d in enumerate(days)}
     labels = {r["id"]: dict(r) for r in conn.execute("SELECT id, label, os FROM machines")}
@@ -217,8 +232,8 @@ def machine_usage(conn: sqlite3.Connection, start: str, end: str, local_machine:
     return {"start": start, "end": end, "days": days, "machines": machines, "other": other}
 
 
-def summary(conn: sqlite3.Connection, start: str, end: str) -> dict:
-    d = daily(conn, start, end)
+def summary(conn: sqlite3.Connection, start: str, end: str, only: str | None = None) -> dict:
+    d = daily(conn, start, end, only)
     per_provider = {}
     all_by_day: dict[str, int] = defaultdict(int)
     for p in d["providers"]:
@@ -257,12 +272,13 @@ def summary(conn: sqlite3.Connection, start: str, end: str) -> dict:
     }
 
 
-def models(conn: sqlite3.Connection, start: str, end: str) -> list[dict]:
+def models(conn: sqlite3.Connection, start: str, end: str, only: str | None = None) -> list[dict]:
     """Per provider and model, from the preferred machine series of each day."""
+    mine, args = _mine(only)
     rows = conn.execute(
         "SELECT s.provider, s.scope, s.source, s.machine, l.series_id, l.day, l.model, l.total, l.cost_micros "
-        "FROM ledger l JOIN series s ON s.id = l.series_id WHERE s.scope = 'machine' AND l.day BETWEEN ? AND ?",
-        (start, end),
+        f"FROM ledger l JOIN series s ON s.id = l.series_id WHERE s.scope = 'machine' AND l.day BETWEEN ? AND ? AND {mine}",
+        (start, end, *args),
     ).fetchall()
     chosen = _preferred([r for r in rows if r["model"] == DAY_TOTAL])
     agg: dict[tuple[str, str], dict] = {}
@@ -287,14 +303,19 @@ def models(conn: sqlite3.Connection, start: str, end: str) -> list[dict]:
     return sorted(out, key=lambda m: m["tokens"], reverse=True)
 
 
-def quota(conn: sqlite3.Connection, start: str, end: str, max_points: int = 600) -> list[dict]:
+def _sampled(only: str | None) -> str:
+    """SQL condition on quota samples: the ones this machine took itself, or all."""
+    return "machine IS NULL" if only else "1"
+
+
+def quota(conn: sqlite3.Connection, start: str, end: str, max_points: int = 600, only: str | None = None) -> list[dict]:
     """Used-percent samples per provider and window, thinned evenly to at most ``max_points`` each.
 
     Each point is ``[captured_at, used_percent, resets_at]``.
     """
     rows = conn.execute(
         "SELECT provider, window, window_minutes, captured_at, used_percent, resets_at FROM quota_samples "
-        "WHERE substr(captured_at, 1, 10) BETWEEN ? AND ? ORDER BY provider, window, captured_at",
+        f"WHERE substr(captured_at, 1, 10) BETWEEN ? AND ? AND {_sampled(only)} ORDER BY provider, window, captured_at",
         (start, end),
     ).fetchall()
     groups: dict[tuple[str, str], list] = defaultdict(list)
@@ -312,7 +333,7 @@ def quota(conn: sqlite3.Connection, start: str, end: str, max_points: int = 600)
     return out
 
 
-def quota_peaks(conn: sqlite3.Connection, start: str, end: str, tz: ZoneInfo) -> dict:
+def quota_peaks(conn: sqlite3.Connection, start: str, end: str, tz: ZoneInfo, only: str | None = None) -> dict:
     """How much of each limit window was used at its highest point.
 
     * weekly: one point per weekly window, keyed by its reset time (hour-rounded, since
@@ -324,7 +345,7 @@ def quota_peaks(conn: sqlite3.Connection, start: str, end: str, tz: ZoneInfo) ->
     """
     rows = conn.execute(
         "SELECT provider, window, captured_at, used_percent, resets_at FROM quota_samples "
-        "WHERE window IN ('weekly', 'session') AND substr(captured_at, 1, 10) BETWEEN ? AND ?",
+        f"WHERE window IN ('weekly', 'session') AND substr(captured_at, 1, 10) BETWEEN ? AND ? AND {_sampled(only)}",
         (start, end),
     ).fetchall()
     weekly: dict[str, dict[str, float]] = defaultdict(dict)
@@ -349,7 +370,7 @@ def quota_peaks(conn: sqlite3.Connection, start: str, end: str, tz: ZoneInfo) ->
     }
 
 
-def quota_now(conn: sqlite3.Connection) -> list[dict]:
+def quota_now(conn: sqlite3.Connection, only: str | None = None) -> list[dict]:
     """The latest reading of every limit window, one entry per provider and window.
 
     Each account's newest sample is taken; when a provider has several accounts, the one
@@ -359,8 +380,8 @@ def quota_now(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         "SELECT q.provider, q.window, q.window_minutes, q.captured_at, q.used_percent, q.resets_at "
         "FROM quota_samples q JOIN (SELECT provider, account, window, MAX(captured_at) AS at FROM quota_samples "
-        "GROUP BY provider, account, window) l ON l.provider = q.provider AND l.account = q.account "
-        "AND l.window = q.window AND l.at = q.captured_at"
+        f"WHERE {_sampled(only)} GROUP BY provider, account, window) l ON l.provider = q.provider "
+        "AND l.account = q.account AND l.window = q.window AND l.at = q.captured_at"
     ).fetchall()
     best: dict[tuple[str, str], dict] = {}
     for r in rows:
@@ -375,11 +396,12 @@ def _hour(iso: str) -> str:
     return (dt + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def revisions(conn: sqlite3.Connection, limit: int = 100) -> list[dict]:
+def revisions(conn: sqlite3.Connection, limit: int = 100, only: str | None = None) -> list[dict]:
+    mine, args = _mine(only)
     rows = conn.execute(
         "SELECT r.*, s.source, s.provider, s.scope, s.machine FROM revisions r JOIN series s ON s.id = r.series_id "
-        "ORDER BY r.id DESC LIMIT ?",
-        (limit,),
+        f"WHERE {mine} ORDER BY r.id DESC LIMIT ?",
+        (*args, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -394,7 +416,7 @@ def captures(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def source_health(conn: sqlite3.Connection, local_machine: str | None = None) -> list[dict]:
+def source_health(conn: sqlite3.Connection, local_machine: str | None = None, only: str | None = None) -> list[dict]:
     """Current state of every source on every machine, judged by its latest attempt.
 
     One entry per machine, source and provider. A failure recorded before any provider
@@ -404,7 +426,8 @@ def source_health(conn: sqlite3.Connection, local_machine: str | None = None) ->
     """
     rows = conn.execute(
         "SELECT c.machine, c.source, s.provider, c.started_at, c.status, c.error FROM captures c "
-        "LEFT JOIN series s ON s.id = c.series_id WHERE c.kind IN ('usage', 'quota') ORDER BY c.started_at, c.id"
+        "LEFT JOIN series s ON s.id = c.series_id WHERE c.kind IN ('usage', 'quota') "
+        f"{'AND c.machine IS NULL' if only else ''} ORDER BY c.started_at, c.id"
     ).fetchall()
     labels = {r["id"]: r["label"] for r in conn.execute("SELECT id, label FROM machines")}
     entries: dict[tuple[str | None, str, str | None], dict] = {}
@@ -459,23 +482,31 @@ def _days_between(a: str, b: str) -> float:
     return (db - da).total_seconds() / 86400
 
 
-def machines(conn: sqlite3.Connection, local_machine: str | None = None) -> list[dict]:
-    """Every machine with data in this ledger; ``snapshot_at`` is when the data of another
-    machine was taken there, ``synced_at`` when it arrived here."""
+def machines(conn: sqlite3.Connection, local_machine: str | None = None, only: str | None = None) -> list[dict]:
+    """Every machine with data in this ledger (only ``only``, when given); ``snapshot_at`` is
+    when the data of another machine was taken there, ``synced_at`` when it arrived here."""
     rows = conn.execute(
         "SELECT m.id, m.label, m.os, m.first_seen_at, m.app_version, m.snapshot_at, m.synced_at, "
         "(SELECT MAX(l.day) FROM ledger l JOIN series s ON s.id = l.series_id WHERE s.machine = m.id) AS last_day "
-        "FROM machines m ORDER BY m.id != ?, m.label",
-        (local_machine,),
+        f"FROM machines m {'WHERE m.id = ?' if only else ''} ORDER BY m.id != ?, m.label",
+        (*([only] if only else []), local_machine),
     ).fetchall()
     return [{**dict(r), "this_machine": r["id"] == local_machine} for r in rows]
 
 
-def status(conn: sqlite3.Connection, settings: Settings) -> dict:
+def status(conn: sqlite3.Connection, settings: Settings, only: str | None = None) -> dict:
+    mine, args = _mine(only)
     counts = conn.execute(
-        "SELECT COUNT(*) AS rows, SUM(state='open') AS open, SUM(state='final') AS final FROM ledger"
+        "SELECT COUNT(*) AS rows, SUM(l.state='open') AS open, SUM(l.state='final') AS final "
+        f"FROM ledger l JOIN series s ON s.id = l.series_id WHERE {mine}",
+        args,
     ).fetchone()
-    b = bounds(conn)
+    revs = conn.execute(
+        "SELECT SUM(r.kind != 'replaced') AS changed, SUM(r.kind = 'replaced') AS replaced "
+        f"FROM revisions r JOIN series s ON s.id = r.series_id WHERE {mine}",
+        args,
+    ).fetchone()
+    b = bounds(conn, only)
     return {
         "machine": {"id": settings.machine.id, "label": settings.machine.label},
         "timezone": settings.timezone,
@@ -484,40 +515,50 @@ def status(conn: sqlite3.Connection, settings: Settings) -> dict:
         "ledger_rows": counts["rows"],
         "open_rows": counts["open"] or 0,
         "final_rows": counts["final"] or 0,
-        "revisions": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind != 'replaced'").fetchone()[0],
-        "replacements": conn.execute("SELECT COUNT(*) FROM revisions WHERE kind = 'replaced'").fetchone()[0],
-        "quota_samples": conn.execute("SELECT COUNT(*) FROM quota_samples").fetchone()[0],
-        "sources": source_health(conn, settings.machine.id),
-        "machines": machines(conn, settings.machine.id),
+        "revisions": revs["changed"] or 0,
+        "replacements": revs["replaced"] or 0,
+        "quota_samples": conn.execute(f"SELECT COUNT(*) FROM quota_samples WHERE {_sampled(only)}").fetchone()[0],
+        "sources": source_health(conn, settings.machine.id, only),
+        "machines": machines(conn, settings.machine.id, only),
     }
 
 
 RANGE_DAYS = {"d30": 30, "d90": 90, "d180": 182, "y1": 365, "all": None}  # the dashboard's ranges
 
 
-def span(conn: sqlite3.Connection, range_key: str, today: str) -> tuple[str, str]:
+def span(conn: sqlite3.Connection, range_key: str, today: str, only: str | None = None) -> tuple[str, str]:
     """The days a dashboard range covers, ending today."""
     if range_key not in RANGE_DAYS:
         raise ValueError(f"unknown range {range_key!r}; one of {', '.join(RANGE_DAYS)}")
     days = RANGE_DAYS[range_key]
     if days is None:
-        b = bounds(conn)
+        b = bounds(conn, only)
         return (min(b[0], today) if b else today), today
     return (date.fromisoformat(today) - timedelta(days=days - 1)).isoformat(), today
 
 
-def dashboard(conn: sqlite3.Connection, settings: Settings, range_key: str, today: str) -> dict:
-    """Everything one dashboard range shows, in one answer (``GET /api/view``)."""
-    start, end = span(conn, range_key, today)
+def dashboard(
+    conn: sqlite3.Connection, settings: Settings, range_key: str, today: str, *, scope: str, version: str, sync: dict
+) -> dict:
+    """Everything one dashboard range shows, in one answer (``GET /api/view``).
+
+    ``scope`` "machine": what this machine holds itself (its own logs, the accounts it
+    reads), as its local dashboard shows it. "ledger": every machine in the ledger, as the
+    cloud dashboard shows it. ``version`` and ``sync`` (this machine's sync status) go into
+    the status as the dashboard shows them."""
+    if scope not in ("machine", "ledger"):
+        raise ValueError(f"scope must be machine or ledger, got {scope!r}")
+    only = settings.machine.id if scope == "machine" else None
+    start, end = span(conn, range_key, today, only)
     return {
         "range": range_key,
-        "status": {**status(conn, settings), "today": today},
-        "summary": summary(conn, start, end),
-        "daily": daily(conn, start, end),
-        "models": models(conn, start, end),
-        "machines": machine_usage(conn, start, end, settings.machine.id),
-        "peaks": quota_peaks(conn, start, end, settings.tz),
-        "quota": quota_now(conn),
+        "status": {**status(conn, settings, only), "today": today, "scope": scope, "version": version, "sync": sync},
+        "summary": summary(conn, start, end, only),
+        "daily": daily(conn, start, end, only),
+        "models": models(conn, start, end, only),
+        "machines": machine_usage(conn, start, end, settings.machine.id, only),
+        "peaks": quota_peaks(conn, start, end, settings.tz, only),
+        "quota": quota_now(conn, only),
     }
 
 

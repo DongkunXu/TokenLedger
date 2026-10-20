@@ -5,6 +5,7 @@ import { AccountDialog } from "./cloud/AccountDialog";
 import { Enroll, type EnrollKind } from "./cloud/Enroll";
 import { LinkPage } from "./cloud/LinkPage";
 import { SignIn } from "./cloud/SignIn";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GlassLayers } from "./components/Panel";
 import { Rail } from "./components/Rail";
 import { TooltipProvider } from "./components/Tooltip";
@@ -99,7 +100,19 @@ export default function App() {
   } else {
     page = <Dashboard session={session} chrome={chrome} onSignedOut={refresh} />;
   }
-  return <TooltipProvider>{page}</TooltipProvider>;
+  return (
+    <TooltipProvider>
+      <ErrorBoundary
+        fallback={(e) => (
+          <div className="wrap">
+            <StateNote text={`${chrome.t.error} · ${e.message}`} />
+          </div>
+        )}
+      >
+        {page}
+      </ErrorBoundary>
+    </TooltipProvider>
+  );
 }
 
 function Dashboard({ session, chrome, onSignedOut }: { session: Session; chrome: Chrome; onSignedOut: () => void }) {

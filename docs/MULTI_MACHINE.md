@@ -1,6 +1,6 @@
 # Several machines, one ledger
 
-TokenLedger can count usage from several computers (macOS, Windows, Linux) in one ledger. Every machine captures into its own ledger as before, and shares it through a **cloud ledger**: a small Cloudflare Worker with a D1 database on your own Cloudflare account and domain. Every machine merges what the others share, so each machine's dashboard shows all of them, and the cloud ledger serves the same dashboard on the web, behind a Google or passkey sign-in.
+TokenLedger can count usage from several computers (macOS, Windows, Linux) in one ledger. Every machine captures into its own ledger as before, and shares it through a **cloud ledger**: a small Cloudflare Worker with a D1 database on your own Cloudflare account and domain. Every machine merges what the others share (so each one holds the whole ledger, and its snapshot in the cloud backs up its own days). A machine's local dashboard shows that machine; the cloud ledger serves the dashboard of every machine on the web, behind a Google or passkey sign-in.
 
 Without sync set up, a machine works on its own, exactly as before.
 
@@ -28,13 +28,13 @@ capture → own ledger         capture → own ledger         capture → own le
                          serves the dashboard to you after you sign in (Google or a passkey)
 ```
 
-One sync (after every capture, every 10 minutes while the dashboard server runs, and with `tokenledger sync now`):
+One sync (after every capture, every 10 minutes while the dashboard server runs, and with `tokenledger sync now`; the running dashboard server also captures every hour by itself):
 
 1. Read the list of snapshots in the cloud: one per machine, with the time it was taken.
 2. If the cloud holds a newer snapshot of **this** machine than this ledger last shared, this ledger is behind (its data folder was restored from a backup or recreated). Settled days come back from that snapshot first.
 3. Merge every other machine's snapshot that is newer than the one merged last.
 4. Share this machine's own snapshot.
-5. Publish the dashboard: every range, computed on this machine from the merged ledger.
+5. Publish the dashboard: every range, computed on this machine from the merged ledger, with every machine in it.
 
 The cloud never computes anything and never reads the data; it stores and hands out compressed bytes. A failed sync loses nothing: every ledger keeps what it has, and the next sync moves whole snapshots again.
 
@@ -118,7 +118,7 @@ Where logs are read on each machine (`homes.py`), every place once:
 ## Decisions
 
 - **The cloud stores, machines compute.** Every machine merges the snapshots itself and computes the dashboard; the cloud only keeps bytes. One implementation of the ledger rules, and the Worker stays far inside the free plan's limits.
-- **Every machine holds every machine's data.** Each machine's dashboard and MCP server see the whole ledger, and each machine's own snapshot in the cloud doubles as a backup of its settled days.
+- **Every machine holds every machine's data, and shows its own.** Each ledger has the whole picture, so any machine can publish the cloud dashboard and the MCP server can answer about every machine (`machine_usage`); the local dashboard shows only what that machine logged and the accounts it reads. Each machine's own snapshot in the cloud doubles as a backup of its settled days.
 - **Day-level sync, not request-level.** Requests are deduplicated by id within each machine. Across machines, the same request is only seen twice in rare cases (below); syncing every request would make the data much larger.
 
 ## Known gaps

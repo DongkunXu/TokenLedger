@@ -47,7 +47,6 @@ MAX_DOWNLOAD = 64 * 1024 * 1024  # a snapshot is far smaller; anything bigger is
 SNAPSHOT_TYPE = "application/vnd.tokenledger.snapshot+gzip"
 DASHBOARD_TYPE = "application/vnd.tokenledger.dashboard"
 DASHBOARD_MAGIC = b"TLDASH1\n"
-BACKGROUND_INTERVAL_S = 600.0
 
 
 class SyncError(RuntimeError):
@@ -314,7 +313,10 @@ def _sync(conn: sqlite3.Connection, settings: Settings, link: sync_config.Link, 
         repo.meta_set(conn, "shared_at", taken_at)
     out["shared"] = {"taken_at": taken_at, "bytes": len(body)}
 
-    container, digest = dashboard_container(conn, settings)
+    # Uploaded only after the rest of this sync went through, so it reports this sync as done.
+    synced = {"signed_in": True, "url": link.url, "user": link.user, "last_attempt_at": now, "last_ok": True,
+              "last_ok_at": now, "last_error": None, "signed_out": False}
+    container, digest = dashboard_container(conn, settings, synced)
     if digest != state.get("dashboard_digest"):
         session.call("PUT", "/api/sync/dashboard", body=container, headers={"Content-Type": DASHBOARD_TYPE})
         state["dashboard_digest"] = digest
@@ -324,17 +326,18 @@ def _sync(conn: sqlite3.Connection, settings: Settings, link: sync_config.Link, 
     return out
 
 
-def dashboard_container(conn: sqlite3.Connection, settings: Settings) -> tuple[bytes, str]:
-    """Every dashboard range, each compressed on its own so the cloud can hand one out as it
-    is: a header line, a JSON index, then the parts. The digest leaves the time out, so an
-    unchanged dashboard is not uploaded again."""
+def dashboard_container(conn: sqlite3.Connection, settings: Settings, synced: dict) -> tuple[bytes, str]:
+    """Every dashboard range of the whole ledger (every machine), each compressed on its own
+    so the cloud can hand one out as it is: a header line, a JSON index, then the parts. The
+    digest leaves the times of this sync out, so an unchanged dashboard is not uploaded again."""
     today = local_today(settings, datetime.now(timezone.utc)).isoformat()
     parts = []
     digest = hashlib.sha256()
     for key in views.RANGE_DAYS:
-        raw = json.dumps(views.dashboard(conn, settings, key, today), separators=(",", ":")).encode()
-        digest.update(raw)
-        parts.append((key, gzip.compress(raw, mtime=0)))
+        view = views.dashboard(conn, settings, key, today, scope="ledger", version=__version__, sync={})
+        digest.update(json.dumps(view, separators=(",", ":")).encode())
+        view["status"]["sync"] = synced
+        parts.append((key, gzip.compress(json.dumps(view, separators=(",", ":")).encode(), mtime=0)))
     index = {
         "generated_at": _now(),
         "generated_by": settings.machine.label,
@@ -375,42 +378,3 @@ def status(paths: Paths) -> dict:
         "last_error": state.get("last_error"),
         "signed_out": bool(state.get("signed_out")),
     }
-
-
-class BackgroundSync:
-    """Syncs every ``interval`` seconds while the dashboard server runs, so its view and the
-    published dashboard keep up with the other machines. Does nothing while this machine
-    is not signed in; skips a round when another process is syncing."""
-
-    def __init__(self, *, log: Callable[[str], None], interval: float = BACKGROUND_INTERVAL_S, first_after: float = 5.0) -> None:
-        self.log = log
-        self.interval = interval
-        self.first_after = first_after
-        self.stopped = threading.Event()
-        self.thread = threading.Thread(target=self._run, name="sync", daemon=True)
-
-    def start(self) -> None:
-        self.thread.start()
-
-    def stop(self) -> None:
-        self.stopped.set()
-
-    def _run(self) -> None:
-        wait = self.first_after
-        while not self.stopped.wait(wait):
-            wait = self.interval
-            paths = default_paths()
-            try:
-                if sync_config.load(paths) is None:
-                    continue
-                conn = connect(paths.db)
-                try:
-                    migrate(conn)
-                    result = sync(conn, paths, load_settings(paths), wait=False)
-                finally:
-                    conn.close()
-            except Exception as exc:  # noqa: BLE001 - logged; the next round tries again
-                self.log(f"sync failed: {type(exc).__name__}: {exc}")
-                continue
-            if not result.get("ok") and not result.get("busy"):
-                self.log(f"sync failed: {result.get('error')}")

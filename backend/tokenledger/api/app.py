@@ -7,7 +7,6 @@ Every request opens its own SQLite connection. Dates are ``YYYY-MM-DD``; when
 from __future__ import annotations
 
 import sqlite3
-import threading
 from datetime import date
 from pathlib import Path
 from typing import Iterator
@@ -16,14 +15,11 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, capture, sources, views
+from .. import __version__, capture, views
 from ..config import Paths, Settings, default_paths, load_settings, project_root
 from ..ledger import local_today
 from ..store import connect, migrate
 from ..sync import client as sync_client
-
-_capture_lock = threading.Lock()
-
 
 def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> FastAPI:
     paths = paths or default_paths()
@@ -78,9 +74,9 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
         """Everything one dashboard range shows (the cloud dashboard serves the same shape)."""
         if range_key not in views.RANGE_DAYS:
             raise HTTPException(400, f"range must be one of {', '.join(views.RANGE_DAYS)}")
-        out = views.dashboard(conn, s, range_key, local_today(s, capture.utc_now()).isoformat())
-        out["status"].update(version=__version__, sync=sync_client.status(paths), mode="local")
-        return out
+        # This machine's own data; the cloud dashboard shows every machine (sync/client.py).
+        today = local_today(s, capture.utc_now()).isoformat()
+        return views.dashboard(conn, s, range_key, today, scope="machine", version=__version__, sync=sync_client.status(paths))
 
     @app.get("/api/summary")
     def summary(start: str | None = None, end: str | None = None, conn=Depends(db)):
@@ -118,21 +114,9 @@ def create_app(paths: Paths | None = None, static_dir: Path | None = None) -> Fa
 
     @app.post("/api/capture")
     def run_capture(conn=Depends(db)):
-        if not _capture_lock.acquire(blocking=False):
+        outcomes = capture.run_default(conn, paths, settings)
+        if outcomes is None:
             raise HTTPException(409, "a capture is already running")
-        try:
-            outcomes = capture.run(
-                conn,
-                paths,
-                settings,
-                usage_sources=sources.default_usage_sources(),
-                quota_sources=sources.default_quota_sources(),
-            )
-            # A machine signed in to a cloud ledger syncs right after capturing; the outcome
-            # shows up in the status.
-            sync_client.after_capture(conn, paths, settings)
-        finally:
-            _capture_lock.release()
         return [o.as_dict() for o in outcomes]
 
     static = static_dir or project_root() / "frontend" / "dist"

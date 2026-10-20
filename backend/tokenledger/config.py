@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 CODEXBAR_DEFAULTS = "com.steipete.codexbar"
 CODEXBAR_TIMEZONE_KEY = "tokenCostUsageBucketTimeZone"
 DEFAULT_GRACE_DAYS = 3
+DEFAULT_AUTO_CAPTURE_MINUTES = 60
 
 
 def project_root() -> Path:
@@ -74,6 +75,7 @@ class Settings:
     grace_days: int
     machine: Machine
     wsl: str = "all"  # Windows: read WSL distributions' logs: "all", "running" (no starting) or "off"
+    auto_capture_minutes: int = DEFAULT_AUTO_CAPTURE_MINUTES  # while the dashboard server runs; 0 = off
 
     @property
     def tz(self) -> ZoneInfo:
@@ -143,6 +145,7 @@ def load_settings(paths: Paths) -> Settings:
             grace_days=int(raw["grace_days"]),
             machine=Machine(**raw["machine"]),
             wsl=raw.get("wsl", "all"),
+            auto_capture_minutes=int(raw.get("auto_capture_minutes", DEFAULT_AUTO_CAPTURE_MINUTES)),
         )
     else:
         timezone = codexbar_timezone() or system_timezone()
@@ -152,6 +155,8 @@ def load_settings(paths: Paths) -> Settings:
     ZoneInfo(settings.timezone)  # fail fast on an invalid timezone
     if settings.grace_days < 1:
         raise ValueError(f"grace_days must be >= 1, got {settings.grace_days}")
+    if settings.auto_capture_minutes != 0 and settings.auto_capture_minutes < 10:
+        raise ValueError(f"auto_capture_minutes must be 0 (off) or at least 10, got {settings.auto_capture_minutes}")
     if settings.wsl not in ("all", "running", "off"):
         raise ValueError(f"wsl must be all, running or off, got {settings.wsl!r}")
     return settings
