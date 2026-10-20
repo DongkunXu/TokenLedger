@@ -12,7 +12,7 @@ import { DailyTokensPanel } from "./panels/DailyTokensPanel";
 import { ModelsPanel } from "./panels/ModelsPanel";
 import { ProviderCards } from "./panels/ProviderCards";
 import { QuotaPanel } from "./panels/QuotaPanel";
-import { SourcesPanel, sourceName } from "./panels/SourcesPanel";
+import { SourcesPanel, sourceName, syncProblems } from "./panels/SourcesPanel";
 import { TotalPanel } from "./panels/TotalPanel";
 import { WeeklyCostPanel } from "./panels/WeeklyCostPanel";
 import { useTheme } from "./theme/theme";
@@ -120,7 +120,14 @@ export default function App() {
     const times = data?.status.sources.map((s) => s.last_ok_at).filter((x): x is string => x != null) ?? [];
     return times.length ? times.sort()[0] : null;
   }, [data]);
-  const failing = useMemo(() => data?.status.sources.filter((s) => !s.ok).map((s) => sourceName(t, s)) ?? [], [data, t]);
+  const failing = useMemo(() => {
+    if (!data) return [];
+    const several = data.status.machines.length > 1;
+    const sources = data.status.sources
+      .filter((s) => !s.ok)
+      .map((s) => (several && s.machine_label ? `${sourceName(t, s)} @ ${s.machine_label}` : sourceName(t, s)));
+    return [...sources, ...syncProblems(t, data.status)];
+  }, [data, t]);
   const hasQuota = (data?.quota.length ?? 0) > 0;
 
   return (

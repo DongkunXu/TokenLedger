@@ -97,6 +97,8 @@ export interface RevisionRow {
 }
 
 export interface SourceHealth {
+  machine: string | null; // which machine's source (several machines push to a hub)
+  machine_label: string | null;
   source: string;
   provider: string | null;
   ok: boolean;
@@ -117,8 +119,37 @@ export interface Status {
   replacements: number;
   quota_samples: number;
   sources: SourceHealth[];
+  machines: MachineInfo[];
+  sync: SyncStatus;
   version: string;
   today: string;
+}
+
+// Every machine with data in this ledger (backend views.machines).
+export interface MachineInfo {
+  id: string;
+  label: string;
+  os: string;
+  first_seen_at: string;
+  app_version: string | null;
+  last_push_at: string | null; // set for machines that push to this hub
+  last_snapshot_at: string | null;
+  last_day: string | null;
+  this_machine: boolean;
+}
+
+// This machine's role in sync (backend sync/client.status).
+export interface SyncStatus {
+  role: "standalone" | "hub" | "node";
+  key_id?: string;
+  hub?: string | null; // node: the hub's label
+  hub_url?: string | null;
+  last_attempt_at?: string | null;
+  last_ok?: boolean | null;
+  last_ok_at?: string | null;
+  last_error?: string | null;
+  listen?: string; // hub
+  service?: { running: boolean; healthy: boolean }; // hub
 }
 
 export interface CaptureOutcome {

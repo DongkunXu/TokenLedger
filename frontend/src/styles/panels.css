@@ -814,6 +814,9 @@ svg rect.lit {
   color: var(--ink-3);
   font-size: 11.5px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .src .state {
   font-size: 9px;

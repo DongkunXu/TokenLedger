@@ -15,7 +15,11 @@ Combination rules for the per-provider daily view ("best" figures):
 * machine figures: when several sources read the same provider on the same
   machine, each day comes from the first source in ``MACHINE_SOURCE_ORDER`` that
   has it. Codex moved from CodexBar to codex-logs; CodexBar's rows remain as the
-  record of days whose logs are gone.
+  record of days whose logs are gone. Claude comes from CodexBar where it runs and
+  from claude-logs elsewhere
+* several machines: machine figures are added up across machines (each machine's
+  own logs), account figures across accounts (each account once, whichever
+  machine read it)
 """
 
 from __future__ import annotations
@@ -29,7 +33,9 @@ from .config import Settings
 from .models import DAY_TOTAL
 
 PART_FIELDS = ("input_uncached", "cache_read", "cache_write", "output", "reasoning")
-MACHINE_SOURCE_ORDER = ("codex-logs", "codexbar")
+# Codex: its own logs before CodexBar's record of them. Claude: CodexBar on a Mac, the
+# claude-logs source (same rules) on machines without it or for days CodexBar lacks.
+MACHINE_SOURCE_ORDER = ("codex-logs", "codexbar", "claude-logs")
 RETIRED_SOURCES = {("codexbar", "codex")}  # no longer captured; kept out of the health list
 
 
@@ -336,8 +342,16 @@ def source_health(conn: sqlite3.Connection, local_machine: str | None = None) ->
         if ok:
             e["last_ok_at"] = r["started_at"]
 
+    # A source that a machine no longer runs (removed tool, not available on its platform)
+    # would keep its last result forever; it is left out once that machine's captures have
+    # moved on by more than a day.
+    newest: dict[str | None, str] = {}
+    for (machine, _, _), e in entries.items():
+        newest[machine] = max(newest.get(machine, ""), e["last_at"])
     out = []
     for (machine, source, provider), e in entries.items():
+        if _days_between(e["last_at"], newest[machine]) > 1:
+            continue
         providers = [p for (m, s, p) in entries if m == machine and s == source and p is not None]
         if provider is None and providers:
             continue  # folded into the provider entries below
@@ -347,6 +361,17 @@ def source_health(conn: sqlite3.Connection, local_machine: str | None = None) ->
         out.append(e)
     local_first = lambda e: (e["machine"] != local_machine, e["machine_label"] or "", e["source"], e["provider"] or "")  # noqa: E731
     return sorted(out, key=local_first)
+
+
+def _days_between(a: str, b: str) -> float:
+    try:
+        da = datetime.fromisoformat(a.replace("Z", "+00:00"))
+        db = datetime.fromisoformat(b.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if (da.tzinfo is None) != (db.tzinfo is None):
+        da, db = da.replace(tzinfo=None), db.replace(tzinfo=None)
+    return (db - da).total_seconds() / 86400
 
 
 def machines(conn: sqlite3.Connection, local_machine: str | None = None) -> list[dict]:
