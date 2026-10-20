@@ -4,6 +4,7 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   GOOGLE_CLIENT_ID?: string; // set: people sign in with Google (google.ts)
+  INVITES?: string; // "on": the admin may invite other people; off by default, the ledger is one person's
   // Only for tests against a stand-in for Google:
   GOOGLE_AUTH_URL?: string;
   GOOGLE_JWKS_URL?: string;

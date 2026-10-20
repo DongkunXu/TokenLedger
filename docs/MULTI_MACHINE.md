@@ -54,11 +54,11 @@ Everything one machine is responsible for: every row of its own series, every ro
 
 ## Signing in and security
 
-- **People** sign in to the web dashboard with **Google** (when the deployment has a Google client id, below) or a **passkey** (Touch ID, Face ID, Windows Hello, a phone or a security key). There are no passwords to guess or leak. Only Google accounts linked to a person here can sign in: the first account links its Google account through the setup link, invited people through their invitation. Google sign-in uses only a public client id, no secret: Google posts an ID token back, whose signature, audience, expiry and nonce are checked, and which must answer a sign-in this browser started. The session is an `HttpOnly`, `Secure`, `SameSite=Strict` cookie that lasts 30 days; requests that change something must come from the dashboard's own origin.
+- **People** sign in to the web dashboard with **Google** (when the deployment has a Google client id, below) or a **passkey** (Touch ID, Face ID, Windows Hello, a phone or a security key). There are no passwords to guess or leak. Only Google accounts linked to a person here can sign in: the first account links its Google account through the setup link (invited people, where invitations are on, through their invitation). Google sign-in uses only a public client id, no secret: Google posts an ID token back, whose signature, audience, expiry and nonce are checked, and which must answer a sign-in this browser started. The session is an `HttpOnly`, `Secure`, `SameSite=Strict` cookie that lasts 30 days; requests that change something must come from the dashboard's own origin.
 - **Machines** sign in with `tokenledger sync login <url>`: the machine shows a code and opens the browser, you check the code and approve it while signed in, and the machine receives **its own device token**. There is no shared key to copy between machines. The token is stored in `data/sync.json`, readable by your user only.
 - A device token works only for its machine id, its ledger and its computer (a hash of the computer's hardware or installation id). A copied data folder is refused on the other computer, and a recreated ledger has to sign in again.
 - Remove a machine in the account menu of the web dashboard; its token stops working at once. `tokenledger sync logout` does the same from the machine.
-- Each person has their own ledger. An admin (the first account) can invite others with a one-time link; neither sees the other's data. Whoever runs the deployment can technically read the database, so friends may prefer to deploy their own.
+- **A deployment is one person's.** Each deployment is meant for whoever runs it: their own Cloudflare account, domain and Google client. Only the first account exists, and invitations are off. A deployment that wants to host other people too can switch invitations on (`"invites": true` in `data/cloud.json`, then deploy); the admin then invites with one-time links, each person gets a ledger of their own, and neither sees the other's. Whoever runs a deployment can technically read its database, so everyone else should run their own.
 - The cloud ledger stores only numbers: token counts, costs, model names, dates, source health and machine names. No prompts, file names or project paths.
 - Secrets are stored hashed (session cookies, device tokens, one-time codes, sign-in states). Every response carries a strict Content-Security-Policy, HSTS and no framing.
 - The deployment's own details (domain, database id) live in `data/cloud.json`, outside git; the Cloudflare sign-in of the deploy tool in `.build/wrangler/`.
@@ -79,7 +79,7 @@ Open the setup link, pick a name and create a passkey, or set up Google sign-in 
 ### Optional: sign in with Google
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), create a project (or pick one).
-2. Google Auth Platform → Branding: an app name and your email. Audience: External, then publish the app (it asks only for the `openid` and `email` scopes, which need no review), or keep it in testing and add your Google accounts as test users.
+2. Google Auth Platform → Branding: an app name and your email. Audience: External; keep it in testing and add your own Google account as a test user (only test users can then sign in at all).
 3. Clients → Create client → Web application, with the authorized redirect URI `https://<your domain>/api/auth/google/callback`.
 4. Copy the client id (`....apps.googleusercontent.com`; the secret is not needed) and run `scripts/cloud.sh google <client id>`.
 

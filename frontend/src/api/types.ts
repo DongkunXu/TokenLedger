@@ -187,7 +187,7 @@ export interface View {
 
 export type Session =
   | { mode: "local" }
-  | { mode: "cloud"; user: { name: string; admin: boolean } | null; setup_needed: boolean; google: boolean };
+  | { mode: "cloud"; user: { name: string; admin: boolean } | null; setup_needed: boolean; google: boolean; invites: boolean };
 
 export interface Identity {
   provider: string;

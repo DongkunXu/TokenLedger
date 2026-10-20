@@ -174,7 +174,7 @@ def free_port() -> int:
 
 
 class Cloud:
-    def __init__(self, root: Path, google: FakeGoogle) -> None:
+    def __init__(self, root: Path, google: FakeGoogle, *, invites: bool = True) -> None:
         self.port = free_port()
         self.url = f"http://127.0.0.1:{self.port}"
         self.state = root / "state"
@@ -184,6 +184,7 @@ class Cloud:
         self.conf = {
             "worker": "tokenledger-test", "database": "tokenledger-test", "domain": "127.0.0.1",
             "google_client_id": GOOGLE_CLIENT,
+            "invites": invites,
             "vars": {"GOOGLE_JWKS_URL": google.url + "/certs", "GOOGLE_AUTH_URL": google.url + "/auth",
                      "GOOGLE_ISSUER": GOOGLE_ISSUER},
         }
@@ -369,7 +370,7 @@ def conn_thread(paths: Paths):
 def test_people_and_machines_end_to_end(cloud, tmp_path):
     me = Browser(cloud)
     status, session = me.call("GET", "/api/session")
-    assert session == {"mode": "cloud", "user": None, "setup_needed": True, "google": True}
+    assert session == {"mode": "cloud", "user": None, "setup_needed": True, "google": True, "invites": True}
     assert me.register("not-a-code", "me")[0] == 403
     setup = cloud.code("setup")
     status, created = me.register(setup, "me")
@@ -507,3 +508,18 @@ def test_signing_in_with_google(cloud, google):
     assert new_phone.call("GET", "/api/session")[1]["user"]["name"] == "alice"
     # One Google account belongs to one person.
     assert "linked to another account" in Browser(cloud).google(google, sub="g-alice", code=cloud.code("invite"), name="bob")
+
+
+def test_a_ledger_is_one_persons_unless_invitations_are_on(tmp_path_factory, google):
+    private = Cloud(tmp_path_factory.mktemp("private"), google, invites=False)
+    try:
+        me = Browser(private)
+        assert me.call("GET", "/api/session")[1]["invites"] is False
+        assert me.google(google, sub="g-owner", code=private.code("setup"), name="owner") == "/"
+        assert me.call("POST", "/api/invites", {})[0] == 403
+        # Even a code made by hand in the database does not let anyone else in.
+        status, answer = Browser(private).call("POST", "/api/auth/google/start", {"code": private.code("invite"), "name": "x"})
+        assert status == 403 and "invitations are off" in answer["error"]
+        assert "not linked" in Browser(private).google(google, sub="g-someone-else")
+    finally:
+        private.close()

@@ -2,7 +2,8 @@
 //
 // There are no passwords. A person signs in with Google when the deployment has a Google
 // client id, or with a passkey (Touch ID, Face ID, Windows Hello, a phone or a security key). The first account is created with a setup code
-// printed by `scripts/cloud.sh deploy`; later accounts with an invitation from an admin.
+// printed by `scripts/cloud.sh deploy`. Only when the deployment switches invitations on
+// (INVITES = "on") can that admin invite others, each with a ledger of their own.
 // A person who lost every way to sign in gets a recovery code from whoever runs the deployment
 // (`scripts/cloud.sh recover <name>`), which lets them add a new one.
 
@@ -95,6 +96,11 @@ async function findCode(env: Env, code: string): Promise<Code> {
 
 // Who a passkey or Google account is being added to: the signed-in person, or the account a
 // one-time code creates (setup, invite) or recovers.
+// A deployment is one person's unless invitations are switched on explicitly.
+export function invitesEnabled(env: Env): boolean {
+  return env.INVITES === "on";
+}
+
 export interface Enrollment {
   user_id: string;
   name: string;
@@ -108,6 +114,7 @@ export async function enrollment(env: Env, current: User | null, body: { code?: 
     return { user_id: current.id, name: current.name, new_user: false, code_id: null, admin: !!current.admin };
   }
   const code = await findCode(env, str(body.code, "code"));
+  if (code.kind === "invite" && !invitesEnabled(env)) throw new HttpError(403, "invitations are off for this ledger");
   if (code.kind === "recover") {
     const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(code.user_id).first<User>();
     if (!user) throw new HttpError(403, "this link has expired or was already used");
@@ -160,6 +167,7 @@ export async function routeAuth(request: Request, env: Env, path: string): Promi
       user: user ? { name: user.name, admin: !!user.admin } : null,
       setup_needed: !anyone,
       google: !!env.GOOGLE_CLIENT_ID,
+      invites: invitesEnabled(env),
     });
   }
 
@@ -288,6 +296,7 @@ export async function routeAuth(request: Request, env: Env, path: string): Promi
 
   if (path === "/api/invites" && method === "POST") {
     const user = await requireUser(request, env);
+    if (!invitesEnabled(env)) throw new HttpError(403, "invitations are off for this ledger");
     if (!user.admin) throw new HttpError(403, "only an admin can invite");
     const code = randomToken(24);
     await env.DB.prepare("INSERT INTO codes(id, kind, user_id, created_at, expires_at) VALUES(?, 'invite', ?, ?, ?)")

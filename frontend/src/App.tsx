@@ -204,7 +204,7 @@ function Dashboard({ session, chrome, onSignedOut }: { session: Session; chrome:
         )}
       </div>
       {account && session.mode === "cloud" && session.user && (
-        <AccountDialog user={session.user} google={session.google} chrome={chrome} onClose={() => setAccount(false)} onSignedOut={onSignedOut} />
+        <AccountDialog user={session.user} google={session.google} invites={session.invites} chrome={chrome} onClose={() => setAccount(false)} onSignedOut={onSignedOut} />
       )}
     </>
   );

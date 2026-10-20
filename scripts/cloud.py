@@ -72,7 +72,11 @@ def write_config(conf: dict, *, dev: bool = False, assets: Path | None = None, p
         f'database_id = "{conf.get("database_id") or "00000000-0000-0000-0000-000000000000"}"',
         f'migrations_dir = "{CLOUD / "migrations"}"',
     ]
-    variables = {"GOOGLE_CLIENT_ID": conf.get("google_client_id"), **conf.get("vars", {})}
+    variables = {
+        "GOOGLE_CLIENT_ID": conf.get("google_client_id"),
+        "INVITES": "on" if conf.get("invites") else None,  # off unless data/cloud.json says "invites": true
+        **conf.get("vars", {}),
+    }
     if any(variables.values()):
         lines += ["", "[vars]", *(f'{k} = "{v}"' for k, v in variables.items() if v)]
     if not dev:

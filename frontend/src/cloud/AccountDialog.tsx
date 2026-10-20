@@ -6,11 +6,12 @@ import { GlassLayers } from "../components/Panel";
 import { relativeTime } from "../lib/format";
 import { message } from "./Solo";
 
-// The cloud dashboard's account menu: computers signed in to this ledger, passkeys,
-// invitations (admins), signing out.
-export function AccountDialog({ user, google, chrome, onClose, onSignedOut }: {
+// The cloud dashboard's account menu: computers signed in to this ledger, ways to sign in,
+// invitations (admins, when the deployment allows them), signing out.
+export function AccountDialog({ user, google, invites, chrome, onClose, onSignedOut }: {
   user: { name: string; admin: boolean };
   google: boolean;
+  invites: boolean;
   chrome: Chrome;
   onClose: () => void;
   onSignedOut: () => void;
@@ -122,7 +123,7 @@ export function AccountDialog({ user, google, chrome, onClose, onSignedOut }: {
         )}
       </section>
 
-      {user.admin && (
+      {user.admin && invites && (
         <section className="acct-sec">
           <h3 className="lab">{t.cloud.invite}</h3>
           <p className="solo-note">{t.cloud.inviteHint}</p>
