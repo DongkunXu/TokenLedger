@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 
 import pytest
 
@@ -112,14 +114,32 @@ def test_codex_binary_falls_back_to_path(tmp_path, monkeypatch):
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    codex = bin_dir / "codex"
+    codex = bin_dir / ("codex.exe" if sys.platform == "win32" else "codex")
     codex.write_text("#!/bin/sh\n")
     codex.chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
-    assert find_binary((str(tmp_path / "missing"),)) == str(codex)
+    assert os.path.normcase(find_binary((str(tmp_path / "missing"),))) == os.path.normcase(str(codex))
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     with pytest.raises(SourceError, match="codex on PATH"):
         find_binary((str(tmp_path / "missing"),))
+
+
+def test_codex_windows_desktop_binary(tmp_path, monkeypatch):
+    from tokenledger.sources import codex_server
+
+    monkeypatch.setattr(codex_server.sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    desktop = tmp_path / "OpenAI" / "Codex" / "bin"
+    old = desktop / "old-build" / "codex.exe"
+    new = desktop / "new-build" / "codex.exe"
+    for binary, modified in ((old, 1_700_000_000), (new, 1_700_000_100)):
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(b"test")
+        binary.chmod(0o755)
+        os.utime(binary, (modified, modified))
+    assert codex_server.find_binary(codex_server.default_candidates(), fallback=None) == str(new)
+    new.unlink()
+    assert codex_server.find_binary(codex_server.default_candidates(), fallback=None) == str(old)
 
 
 # ---- codex-logs ----

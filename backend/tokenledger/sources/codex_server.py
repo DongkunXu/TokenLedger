@@ -1,9 +1,9 @@
 """Codex account-wide daily token totals, read from OpenAI's servers.
 
-Starts the Codex CLI (the one bundled with the ChatGPT app, the standalone or npm
-install, else ``codex`` on PATH) as ``codex app-server``, sends ``initialize``
-and two read-only requests over stdio (JSON-RPC, one message per line), then
-shuts it down:
+Starts the Codex CLI (the one bundled with the ChatGPT app or the Codex desktop
+app, the standalone or npm install, else ``codex`` on PATH) as ``codex app-server``,
+sends ``initialize`` and two read-only requests over stdio (JSON-RPC, one message
+per line), then shuts it down:
 
 * ``account/read``: which ChatGPT account is signed in. Its account id, hashed,
   names the series (``acct-<hash>``), so several machines signed in to the same
@@ -58,7 +58,15 @@ def default_candidates() -> tuple[str, ...]:
         local = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
         roaming = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
         npm = roaming / "npm" / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai"
+        # The desktop app keeps its CLI in versioned directories, alongside older builds.
+        desktop = local / "OpenAI" / "Codex" / "bin"
+        try:
+            desktop_binaries = sorted(desktop.glob("*/codex.exe"), key=lambda p: p.stat().st_mtime, reverse=True)
+        except OSError:
+            desktop_binaries = []
         return (
+            str(desktop / "codex.exe"),
+            *(str(p) for p in desktop_binaries),
             str(local / "Programs" / "OpenAI" / "Codex" / "bin" / "codex.exe"),  # standalone installer
             str(npm / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"),
             str(npm / "codex-win32-arm64" / "vendor" / "aarch64-pc-windows-msvc" / "bin" / "codex.exe"),
